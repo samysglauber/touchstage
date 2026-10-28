@@ -27,8 +27,8 @@ class BridgeState: ObservableObject {
         } else {
             devH = 82.0
         }
-        // 14 top + 70 serverCard + 12 gap + 14 header + 6 gap + devH + 12 gap + 1 sep + 10 gap + 24 footer + 12 bottom
-        return 14 + 70 + 12 + 14 + 6 + devH + 12 + 1 + 10 + 24 + 12
+        // 16 top + 70 serverCard + 12 gap + 14 header + 6 gap + devH + 12 gap + 1 sep + 10 gap + 26 footer + 14 bottom
+        return 16 + 70 + 12 + 14 + 6 + devH + 12 + 1 + 10 + 26 + 14
     }
 
     init(port: Int = 9000) {

@@ -33,6 +33,24 @@ struct CardContainer<Content: View>: View {
     }
 }
 
+struct PillButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundColor(configuration.isPressed ? .white.opacity(0.7) : .white)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(configuration.isPressed ? 0.12 : 0.065))
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.white.opacity(configuration.isPressed ? 0.14 : 0.08), lineWidth: 0.5)
+                    )
+            )
+            .contentShape(Capsule())
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 struct DeviceRowView: View {
     let name: String
     let ipAddress: String
@@ -78,7 +96,7 @@ struct BridgeView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 1. Network / Server Card
+            // 1. Network / Server Card (top margin adjusted to 16 pt to match 14 pt lateral margin)
             CardContainer {
                 VStack(spacing: 0) {
                     // Row 1: CoreMIDI
@@ -148,7 +166,7 @@ struct BridgeView: View {
             }
             .frame(height: 70)
             .padding(.horizontal, 14)
-            .padding(.top, 14)
+            .padding(.top, 16)
             
             // 2. Section Header: Connected Devices
             Text(state.devices.isEmpty ? "CONNECTED DEVICES" : "CONNECTED DEVICES (\(state.devices.count))")
@@ -231,40 +249,40 @@ struct BridgeView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 10)
             
-            // 5. Footer Buttons
+            // 5. Footer Buttons (Native Capsule Pills)
             HStack {
                 Button(action: {
                     state.openEditor(closePopover: closePopover)
                 }) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Image(systemName: "slider.horizontal.2.square")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 11.5, weight: .medium))
                         Text("Open Editor")
                             .font(.system(size: 11, weight: .medium))
                     }
-                    .frame(height: 22)
+                    .padding(.horizontal, 12)
+                    .frame(height: 26)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
+                .buttonStyle(PillButtonStyle())
                 
                 Spacer()
                 
                 Button(action: {
                     state.quit()
                 }) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Image(systemName: "power")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 10.5, weight: .medium))
                         Text("Quit")
                             .font(.system(size: 11, weight: .medium))
                     }
-                    .frame(height: 22)
+                    .padding(.horizontal, 12)
+                    .frame(height: 26)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
+                .buttonStyle(PillButtonStyle())
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, 12)
+            .padding(.bottom, 14)
         }
         .frame(width: 320, height: state.expectedHeight)
         .background(VisualEffectBackground().ignoresSafeArea())
