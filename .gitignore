@@ -1,0 +1,38 @@
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Compiled macOS Applications and Binaries
+*.app/
+macos/AirMIDI_bin
+macos/**/AirMIDI.app
+macos/**/TouchStage Bridge.app
+macos/**/TouchStage Editor.app
+macos/**/AirMIDI Bridge.app
+macos/**/AirMIDI Studio.app
+TouchStage Bridge.app/
+TouchStage Editor.app/
+
+# Android & Gradle Build Output and Caches
+.gradle/
+android/.gradle/
+android/local.properties
+android/build/
+android/app/build/
+android/**/build/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Android Studio / IntelliJ IDEA
+*.iml
+.idea/
+
+# Android Keystores & Debug Artifacts
+*.jks
+*.keystore
+android/app/build/outputs/apk/
