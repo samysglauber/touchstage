@@ -14,7 +14,22 @@ class BridgeState: ObservableObject {
     @Published var devices: [ConnectedDevice] = []
     @Published var isCopied: Bool = false
 
+    var onStateChanged: (() -> Void)?
+
     let server: AirMIDIBridgeServer
+
+    var expectedHeight: CGFloat {
+        let devH: CGFloat
+        if devices.isEmpty {
+            devH = 54.0
+        } else if devices.count == 1 {
+            devH = 45.0
+        } else {
+            devH = 82.0
+        }
+        // 14 top + 70 serverCard + 12 gap + 14 header + 6 gap + devH + 12 gap + 1 sep + 10 gap + 24 footer + 12 bottom
+        return 14 + 70 + 12 + 14 + 6 + devH + 12 + 1 + 10 + 24 + 12
+    }
 
     init(port: Int = 9000) {
         self.server = AirMIDIBridgeServer(port: port)
@@ -34,6 +49,7 @@ class BridgeState: ObservableObject {
         self.localIP = server.localIP ?? "127.0.0.1"
         self.port = server.port
         self.devices = server.connectedDevices ?? []
+        self.onStateChanged?()
     }
 
     func copyIP() {

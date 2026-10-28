@@ -5,6 +5,7 @@ class BridgeAppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var popover: NSPopover!
     var bridgeState: BridgeState!
+    var hostingController: NSHostingController<BridgeView>!
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         // 1. Initialize State and CoreMIDI / Wi-Fi Server
@@ -18,8 +19,23 @@ class BridgeAppDelegate: NSObject, NSApplicationDelegate {
         let bridgeView = BridgeView(state: bridgeState, closePopover: { [weak self] in
             self?.popover.performClose(nil)
         })
-        let hostingController = NSHostingController(rootView: bridgeView)
+        hostingController = NSHostingController(rootView: bridgeView)
+        if #available(macOS 13.0, *) {
+            hostingController.safeAreaRegions = []
+        }
+        
+        let initialSize = NSMakeSize(320, bridgeState.expectedHeight)
+        hostingController.preferredContentSize = initialSize
+        popover.contentSize = initialSize
         popover.contentViewController = hostingController
+        
+        // Dynamic resize on device changes
+        bridgeState.onStateChanged = { [weak self] in
+            guard let self = self else { return }
+            let newSize = NSMakeSize(320, self.bridgeState.expectedHeight)
+            self.hostingController.preferredContentSize = newSize
+            self.popover.contentSize = newSize
+        }
         
         // 3. Status Bar Item (Minimalist Slider Icon)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -66,6 +82,10 @@ class BridgeAppDelegate: NSObject, NSApplicationDelegate {
             popover.performClose(sender)
         } else {
             bridgeState.refresh()
+            let targetSize = NSMakeSize(320, bridgeState.expectedHeight)
+            hostingController.preferredContentSize = targetSize
+            popover.contentSize = targetSize
+            
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
             NSApp.activate(ignoringOtherApps: true)

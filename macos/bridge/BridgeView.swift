@@ -123,17 +123,24 @@ struct BridgeView: View {
                         Text("\(state.localIP):\(state.port)")
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .foregroundColor(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                         
                         Button(action: {
                             state.copyIP()
                         }) {
-                            Text(state.isCopied ? "✓ Copied" : "Copy")
-                                .font(.system(size: 10.5, weight: .medium))
-                                .foregroundColor(state.isCopied ? Color(red: 0.25, green: 0.85, blue: 0.45) : .primary)
-                                .frame(width: 52, height: 20)
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(state.isCopied ? Color(red: 0.2, green: 0.82, blue: 0.4).opacity(0.18) : Color.white.opacity(0.06))
+                                    .frame(width: 24, height: 22)
+                                
+                                Image(systemName: state.isCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(state.isCopied ? Color(red: 0.25, green: 0.85, blue: 0.45) : .secondary)
+                            }
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(.plain)
+                        .help(state.isCopied ? "Copied!" : "Copy IP and Port")
                     }
                     .padding(.horizontal, 12)
                     .frame(height: 35)
@@ -259,7 +266,8 @@ struct BridgeView: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 12)
         }
-        .frame(width: 320)
+        .frame(width: 320, height: state.expectedHeight)
         .background(VisualEffectBackground().ignoresSafeArea())
+        .ignoresSafeArea()
     }
 }
