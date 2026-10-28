@@ -193,16 +193,16 @@ struct BridgeView: View {
                     .frame(height: 54)
                 } else if state.devices.count == 1 {
                     // 1 Device: Compact 45 pt card with 8 pt top/bottom margins
-                    DeviceRowView(name: state.devices[0].name ?? "Android Device",
-                                  ipAddress: state.devices[0].ipAddress ?? "Wi-Fi")
+                    DeviceRowView(name: state.devices[0].name,
+                                  ipAddress: state.devices[0].ipAddress)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .frame(height: 45)
                 } else if state.devices.count == 2 {
                     // 2 Devices: 82 pt card, 8 pt top/bottom/gap margins, divider centered
                     VStack(spacing: 0) {
-                        DeviceRowView(name: state.devices[0].name ?? "Android Device",
-                                      ipAddress: state.devices[0].ipAddress ?? "Wi-Fi")
+                        DeviceRowView(name: state.devices[0].name,
+                                      ipAddress: state.devices[0].ipAddress)
                         
                         Rectangle()
                             .fill(Color.white.opacity(0.05))
@@ -211,8 +211,8 @@ struct BridgeView: View {
                             .padding(.trailing, 12)
                             .padding(.vertical, 3.5)
                         
-                        DeviceRowView(name: state.devices[1].name ?? "Android Device",
-                                      ipAddress: state.devices[1].ipAddress ?? "Wi-Fi")
+                        DeviceRowView(name: state.devices[1].name,
+                                      ipAddress: state.devices[1].ipAddress)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -230,8 +230,8 @@ struct BridgeView: View {
                                         .padding(.trailing, 12)
                                         .padding(.vertical, 3.5)
                                 }
-                                DeviceRowView(name: state.devices[idx].name ?? "Android Device",
-                                              ipAddress: state.devices[idx].ipAddress ?? "Wi-Fi")
+                                DeviceRowView(name: state.devices[idx].name,
+                                              ipAddress: state.devices[idx].ipAddress)
                             }
                         }
                         .padding(.horizontal, 12)

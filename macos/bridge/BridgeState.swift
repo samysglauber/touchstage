@@ -2,12 +2,6 @@ import Foundation
 import Combine
 import AppKit
 
-extension ConnectedDevice: Identifiable {
-    public var id: String {
-        return deviceId ?? ipAddress ?? UUID().uuidString
-    }
-}
-
 class BridgeState: ObservableObject {
     @Published var localIP: String = "127.0.0.1"
     @Published var port: Int = 9000
@@ -16,7 +10,7 @@ class BridgeState: ObservableObject {
 
     var onStateChanged: (() -> Void)?
 
-    let server: AirMIDIBridgeServer
+    let server: BridgeServer
 
     var expectedHeight: CGFloat {
         let devH: CGFloat
@@ -32,23 +26,23 @@ class BridgeState: ObservableObject {
     }
 
     init(port: Int = 9000) {
-        self.server = AirMIDIBridgeServer(port: port)
-        self.localIP = server.localIP ?? "127.0.0.1"
+        self.server = BridgeServer(port: port)
+        self.localIP = server.localIP
         self.port = server.port
-        self.devices = server.connectedDevices ?? []
+        self.devices = server.connectedDevices
 
         server.deviceListChanged = { [weak self] in
             DispatchQueue.main.async {
                 self?.refresh()
             }
         }
-        server.start()
+        _ = server.start()
     }
 
     func refresh() {
-        self.localIP = server.localIP ?? "127.0.0.1"
+        self.localIP = server.localIP
         self.port = server.port
-        self.devices = server.connectedDevices ?? []
+        self.devices = server.connectedDevices
         self.onStateChanged?()
     }
 
