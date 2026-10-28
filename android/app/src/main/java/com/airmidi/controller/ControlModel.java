@@ -95,11 +95,15 @@ public class ControlModel {
         m.knobStyle = json.optString("knobStyle", "standard");
         m.valueDisplay = json.optString("valueDisplay", "none");
         m.valuePosition = json.optString("valuePosition", "center");
-        m.valueFontSize = (float) json.optDouble("valueFontSize", 0);
+        float vFontSize = (float) json.optDouble("valueFontSize", 0);
+        if ("center".equals(m.valuePosition) && vFontSize > 20.0f) {
+            vFontSize = 20.0f;
+        }
+        m.valueFontSize = vFontSize;
         m.faderStyle = json.optString("faderStyle", "standard");
         m.fontSize = (float) json.optDouble("fontSize", 0);
         m.shape = json.optString("shape", "square");
-        m.hasBackground = json.optBoolean("hasBackground", false);
+        m.hasBackground = json.has("hasBackground") ? json.optBoolean("hasBackground") : ("fader".equals(m.type) || "label".equals(m.type));
         m.hasVuMeter = json.optBoolean("hasVuMeter", false);
         m.vuMidiChannel = json.optInt("vuMidiChannel", m.midiChannel);
         m.vuMidiNumber = json.optInt("vuMidiNumber", m.midiNumber);

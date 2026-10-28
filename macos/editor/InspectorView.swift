@@ -509,8 +509,13 @@ public class InspectorView: NSView, NSTextFieldDelegate {
 
         if currentControl.valuePosition == "bottom" {
             knobValuePosSegment.selectedSegment = 1
+            knobValueFontSizeSlider.maxValue = 26.0
         } else {
             knobValuePosSegment.selectedSegment = 0
+            knobValueFontSizeSlider.maxValue = 20.0
+            if currentControl.valueFontSize > 20.0 {
+                currentControl.valueFontSize = 20.0
+            }
         }
 
         knobValueFontSizeSlider.doubleValue = Double(currentControl.valueFontSize)
@@ -553,6 +558,13 @@ public class InspectorView: NSView, NSTextFieldDelegate {
                 labelPosLabel.frame = NSRect(x: pad, y: y + 4, width: halfW, height: 14)
                 labelPosSegment.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 24)
                 y += 30.0
+
+                if isFader {
+                    labelBgCheckbox.isHidden = false
+                    labelBgCheckbox.title = "Capsule Background"
+                    labelBgCheckbox.frame = NSRect(x: pad, y: y, width: w, height: 18)
+                    y += 24.0
+                }
             } else {
                 labelPosLabel.isHidden = true
                 labelPosSegment.isHidden = true
@@ -658,7 +670,7 @@ public class InspectorView: NSView, NSTextFieldDelegate {
             labelBgCheckbox.isHidden = false
             labelBgCheckbox.frame = NSRect(x: pad, y: y, width: w, height: 18)
             y += 24.0
-        } else {
+        } else if !isFader || !ctrl.hasLabel {
             labelBgCheckbox.isHidden = true
         }
 
@@ -863,13 +875,28 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
         ctrl.valuePosition = (knobValuePosSegment.selectedSegment == 1) ? "bottom" : "center"
+        if ctrl.valuePosition == "center" {
+            knobValueFontSizeSlider.maxValue = 20.0
+            if ctrl.valueFontSize > 20.0 {
+                ctrl.valueFontSize = 20.0
+                knobValueFontSizeSlider.doubleValue = 20.0
+                knobValueFontSizeLabel.stringValue = "Value Font Size: 20 pt"
+            }
+        } else {
+            knobValueFontSizeSlider.maxValue = 26.0
+        }
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
     @objc private func onKnobValueFontSizeChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.valueFontSize = round(CGFloat(knobValueFontSizeSlider.doubleValue))
+        var val = round(CGFloat(knobValueFontSizeSlider.doubleValue))
+        if ctrl.valuePosition == "center" && val > 20.0 {
+            val = 20.0
+            knobValueFontSizeSlider.doubleValue = 20.0
+        }
+        ctrl.valueFontSize = val
         knobValueFontSizeLabel.stringValue = (ctrl.valueFontSize > 0) ? "Value Font Size: \(Int(ctrl.valueFontSize)) pt" : "Value Font Size: Auto"
         delegate?.inspectorDidUpdateControl(ctrl)
     }

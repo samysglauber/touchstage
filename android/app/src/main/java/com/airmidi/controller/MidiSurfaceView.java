@@ -1197,6 +1197,10 @@ public class MidiSurfaceView extends View {
     private int deriveDarkBaseColor(int accentColor) {
         float[] hsv = new float[3];
         Color.colorToHSV(accentColor, hsv);
+        if (hsv[1] < 0.15f) {
+            int grayVal = Math.round(Math.max(0.14f, Math.min(0.32f, hsv[2] * 0.28f)) * 255.0f);
+            return Color.rgb(grayVal, grayVal, grayVal);
+        }
         hsv[1] = Math.min(1.0f, Math.max(0.65f, hsv[1] * 1.15f));
         hsv[2] = Math.max(0.12f, Math.min(0.42f, hsv[2] * 0.38f));
         return Color.HSVToColor(hsv);
@@ -1417,13 +1421,15 @@ public class MidiSurfaceView extends View {
 
         // 1. Draw Pill Label & Glowing Neon Line
         if (hasLabel && pillRect != null) {
-            paintFill.setShader(null);
-            paintFill.setColor(Color.parseColor("#0C0E12"));
-            canvas.drawRoundRect(pillRect, 8.0f, 8.0f, paintFill);
+            if (ctrl.hasBackground) {
+                paintFill.setShader(null);
+                paintFill.setColor(Color.parseColor("#0C0E12"));
+                canvas.drawRoundRect(pillRect, 8.0f, 8.0f, paintFill);
 
-            paintStroke.setColor(Color.parseColor("#262932"));
-            paintStroke.setStrokeWidth(1.2f);
-            canvas.drawRoundRect(pillRect, 8.0f, 8.0f, paintStroke);
+                paintStroke.setColor(Color.parseColor("#262932"));
+                paintStroke.setStrokeWidth(1.2f);
+                canvas.drawRoundRect(pillRect, 8.0f, 8.0f, paintStroke);
+            }
 
             float fSize = (ctrl.fontSize > 0) ? ctrl.fontSize : 11.5f;
             paintText.setColor(Color.WHITE);
@@ -1864,7 +1870,8 @@ public class MidiSurfaceView extends View {
                 canvas.drawCircle(cx, cy, centerR, paintStroke);
 
                 float autoFontSize = Math.max(9.0f, Math.min(14.0f, centerR * 0.74f));
-                float fontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize;
+                float rawFontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize;
+                float fontSize = Math.min(20.0f, rawFontSize);
                 paintText.setColor(Color.WHITE);
                 paintText.setTextSize(fontSize);
                 paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));

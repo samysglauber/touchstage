@@ -28,6 +28,12 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
     var a: CGFloat = 0
     rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
     
+    // For white, silver, or very low saturation grays, use neutral grayscale tones without hue tint
+    if s < 0.15 {
+        let darkVal = max(0.14, min(0.32, b * 0.28))
+        return NSColor(calibratedWhite: darkVal, alpha: 1.0)
+    }
+
     let newS = min(1.0, max(0.65, s * 1.15))
     let newB = max(0.12, min(0.42, b * 0.38))
     return NSColor(hue: h, saturation: newS, brightness: newB, alpha: 1.0)
@@ -140,11 +146,15 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
         m.knobStyle = (dict["knobStyle"] as? String) ?? "standard"
         m.valueDisplay = (dict["valueDisplay"] as? String) ?? "none"
         m.valuePosition = (dict["valuePosition"] as? String) ?? "center"
-        m.valueFontSize = CGFloat((dict["valueFontSize"] as? NSNumber)?.doubleValue ?? 0.0)
+        var vFontSize = CGFloat((dict["valueFontSize"] as? NSNumber)?.doubleValue ?? 0.0)
+        if m.valuePosition == "center" && vFontSize > 20.0 {
+            vFontSize = 20.0
+        }
+        m.valueFontSize = vFontSize
         m.faderStyle = (dict["faderStyle"] as? String) ?? "standard"
         m.fontSize = CGFloat((dict["fontSize"] as? NSNumber)?.doubleValue ?? 0.0)
         m.shape = (dict["shape"] as? String) ?? "square"
-        m.hasBackground = (dict["hasBackground"] as? NSNumber)?.boolValue ?? false
+        m.hasBackground = (dict["hasBackground"] as? NSNumber)?.boolValue ?? (m.type == "fader" || m.type == "label")
         m.hasVuMeter = (dict["hasVuMeter"] as? NSNumber)?.boolValue ?? false
         m.vuMidiChannel = (dict["vuMidiChannel"] as? NSNumber)?.intValue ?? m.midiChannel
         m.vuMidiNumber = (dict["vuMidiNumber"] as? NSNumber)?.intValue ?? m.midiNumber
@@ -193,6 +203,7 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
             dict["hasVuMeter"] = hasVuMeter
             if vuMidiNumber > 0 { dict["vuMidiNumber"] = vuMidiNumber }
             if vuMidiChannel > 0 { dict["vuMidiChannel"] = vuMidiChannel }
+            dict["hasBackground"] = hasBackground
         } else if type == "button" {
             dict["shape"] = shape
             dict["mode"] = mode
@@ -431,6 +442,7 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
             f.value = faderVals[i]
             f.hasLabel = true
             f.labelPosition = "top"
+            f.hasBackground = true
             page1.controls.append(f)
 
             // 2. Toggle Illuminated Pad Button (80 x 60 at y=260 -> ends at y=320)

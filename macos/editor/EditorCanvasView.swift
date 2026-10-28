@@ -277,12 +277,14 @@ public class EditorCanvasView: NSView {
 
         // 1. Draw Label Pill
         if hasLabel {
-            let pill = NSBezierPath(roundedRect: pillRect, xRadius: 8.0, yRadius: 8.0)
-            NSColor(calibratedRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0).setFill()
-            pill.fill()
-            NSColor(calibratedWhite: 0.18, alpha: 1.0).setStroke()
-            pill.lineWidth = 1.0
-            pill.stroke()
+            if ctrl.hasBackground {
+                let pill = NSBezierPath(roundedRect: pillRect, xRadius: 8.0, yRadius: 8.0)
+                NSColor(calibratedRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0).setFill()
+                pill.fill()
+                NSColor(calibratedWhite: 0.18, alpha: 1.0).setStroke()
+                pill.lineWidth = 1.0
+                pill.stroke()
+            }
 
             let fSize: CGFloat = (ctrl.fontSize > 0) ? ctrl.fontSize : 11.0
             let style = NSMutableParagraphStyle()
@@ -721,7 +723,8 @@ public class EditorCanvasView: NSView {
                 centerCap.stroke()
 
                 let autoFontSize = max(9.0, min(14.0, centerR * 0.74))
-                let fontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize
+                let rawFontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize
+                let fontSize = min(20.0, rawFontSize)
                 let valAttrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold),
                     .foregroundColor: NSColor.white,
@@ -1613,6 +1616,7 @@ public class EditorCanvasView: NSView {
         if t == "fader" {
             m.hasLabel = true
             m.labelPosition = "top"
+            m.hasBackground = true
         } else if t == "knob" {
             m.hasLabel = true
             m.labelPosition = "bottom"
