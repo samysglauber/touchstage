@@ -720,7 +720,8 @@ public class EditorCanvasView: NSView {
                 centerCap.lineWidth = 1.0
                 centerCap.stroke()
 
-                let fontSize = max(9.0, min(13.0, centerR * 0.74))
+                let autoFontSize = max(9.0, min(14.0, centerR * 0.74))
+                let fontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize
                 let valAttrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold),
                     .foregroundColor: NSColor.white,
@@ -730,8 +731,10 @@ public class EditorCanvasView: NSView {
                 let textRect = NSRect(x: cx - centerR, y: cy - (textSize.height / 2.0), width: centerR * 2.0, height: textSize.height)
                 (valueString as NSString).draw(in: textRect, withAttributes: valAttrs)
             } else {
-                let badgeW: CGFloat = max(42.0, CGFloat(valueString.count) * 8.5 + 14.0)
-                let badgeH: CGFloat = 16.0
+                let autoFontSize: CGFloat = 10.0
+                let fontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize
+                let badgeW: CGFloat = max(42.0, CGFloat(valueString.count) * (fontSize * 0.85) + 14.0)
+                let badgeH: CGFloat = max(16.0, fontSize + 6.0)
                 let badgeY: CGFloat
                 if hasLabel && !isLabelTop {
                     badgeY = pillRect.origin.y - badgeH - 3.0
@@ -747,7 +750,7 @@ public class EditorCanvasView: NSView {
                 badgePath.stroke()
 
                 let valAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 10.0, weight: .semibold),
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .semibold),
                     .foregroundColor: ctrl.accentColor,
                     .paragraphStyle: pStyle
                 ]
@@ -815,11 +818,12 @@ public class EditorCanvasView: NSView {
 
             let faceRect = ringRect.insetBy(dx: 4.0, dy: 4.0)
             let face = NSBezierPath(ovalIn: faceRect)
+            let baseColor = (HexFromColor(ctrl.color) == HexFromColor(ctrl.accentColor)) ? DeriveDarkBaseColor(from: ctrl.accentColor) : ctrl.color
             if isLit {
-                ctrl.color.setFill()
+                baseColor.setFill()
                 face.fill()
-                let glowGrad = NSGradient(starting: ctrl.accentColor.withAlphaComponent(0.6),
-                                          ending: ctrl.color.withAlphaComponent(0.9))
+                let glowGrad = NSGradient(starting: ctrl.accentColor.withAlphaComponent(0.80),
+                                          ending: baseColor.withAlphaComponent(0.95))
                 glowGrad?.draw(in: face, relativeCenterPosition: .zero)
             } else {
                 let dialGrad = NSGradient(colorsAndLocations:
@@ -841,10 +845,11 @@ public class EditorCanvasView: NSView {
             ctx.setShadow(offset: .zero, blur: glowRadius, color: ctrl.accentColor.withAlphaComponent(glowAlpha).cgColor)
 
             let padPath = NSBezierPath(roundedRect: padRect, xRadius: cornerR, yRadius: cornerR)
+            let baseColor = (HexFromColor(ctrl.color) == HexFromColor(ctrl.accentColor)) ? DeriveDarkBaseColor(from: ctrl.accentColor) : ctrl.color
 
             if isLit {
                 let glassGrad = NSGradient(starting: ctrl.accentColor.withAlphaComponent(0.85),
-                                           ending: ctrl.color.withAlphaComponent(0.95))
+                                           ending: baseColor.withAlphaComponent(0.95))
                 glassGrad?.draw(in: padPath, relativeCenterPosition: NSPoint(x: 0.0, y: 0.1))
             } else {
                 let darkGrad = NSGradient(colorsAndLocations:

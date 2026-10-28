@@ -44,6 +44,8 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     private var knobValueDisplaySegment: NSSegmentedControl!
     private var knobValuePosLabel: NSTextField!
     private var knobValuePosSegment: NSSegmentedControl!
+    private var knobValueFontSizeLabel: NSTextField!
+    private var knobValueFontSizeSlider: NSSlider!
     private var faderOrientationLabel: NSTextField!
     private var faderOrientationSegment: NSSegmentedControl!
     private var faderStyleLabel: NSTextField!
@@ -265,6 +267,15 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         knobValuePosSegment.segmentStyle = .texturedRounded
         knobValuePosSegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
         contentContainer.addSubview(knobValuePosSegment)
+
+        // Knob Value Font Size Slider
+        knobValueFontSizeLabel = createLabel("Value Font Size: Auto", frame: NSRect(x: pad, y: 232, width: w, height: 14), bold: false)
+        contentContainer.addSubview(knobValueFontSizeLabel)
+        knobValueFontSizeSlider = NSSlider(value: 0.0, minValue: 0.0, maxValue: 26.0, target: self, action: #selector(onKnobValueFontSizeChanged(_:)))
+        knobValueFontSizeSlider.frame = NSRect(x: pad, y: 248, width: w, height: 20)
+        knobValueFontSizeSlider.numberOfTickMarks = 14
+        knobValueFontSizeSlider.allowsTickMarkValuesOnly = false
+        contentContainer.addSubview(knobValueFontSizeSlider)
 
         // Single Color Picker
         colorLabel = createLabel("Control Color", frame: NSRect(x: pad, y: 178, width: w, height: 14), bold: false)
@@ -502,6 +513,9 @@ public class InspectorView: NSView, NSTextFieldDelegate {
             knobValuePosSegment.selectedSegment = 0
         }
 
+        knobValueFontSizeSlider.doubleValue = Double(currentControl.valueFontSize)
+        knobValueFontSizeLabel.stringValue = (currentControl.valueFontSize > 0) ? "Value Font Size: \(Int(currentControl.valueFontSize)) pt" : "Value Font Size: Auto"
+
         // MIDI Range
         minValField.integerValue = currentControl.minValue
         maxValField.integerValue = currentControl.maxValue
@@ -615,11 +629,18 @@ public class InspectorView: NSView, NSTextFieldDelegate {
             let showPos = (ctrl.valueDisplay != "none")
             knobValuePosLabel.isHidden = !showPos
             knobValuePosSegment.isHidden = !showPos
+            knobValueFontSizeLabel.isHidden = !showPos
+            knobValueFontSizeSlider.isHidden = !showPos
             if showPos {
                 knobValuePosLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
                 y += 18.0
                 knobValuePosSegment.frame = NSRect(x: pad, y: y, width: w, height: 24)
                 y += 30.0
+
+                knobValueFontSizeLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
+                y += 18.0
+                knobValueFontSizeSlider.frame = NSRect(x: pad, y: y, width: w, height: 20)
+                y += 26.0
             }
         } else {
             knobStyleLabel.isHidden = true
@@ -628,6 +649,8 @@ public class InspectorView: NSView, NSTextFieldDelegate {
             knobValueDisplaySegment.isHidden = true
             knobValuePosLabel.isHidden = true
             knobValuePosSegment.isHidden = true
+            knobValueFontSizeLabel.isHidden = true
+            knobValueFontSizeSlider.isHidden = true
         }
 
         // 3. Controls specific to Label
@@ -843,6 +866,14 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
+    @objc private func onKnobValueFontSizeChanged(_ sender: Any?) {
+        guard !isUpdatingUI, let ctrl = currentControl else { return }
+        notifyWillChange()
+        ctrl.valueFontSize = round(CGFloat(knobValueFontSizeSlider.doubleValue))
+        knobValueFontSizeLabel.stringValue = (ctrl.valueFontSize > 0) ? "Value Font Size: \(Int(ctrl.valueFontSize)) pt" : "Value Font Size: Auto"
+        delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
     @objc private func onFaderStyleChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
@@ -899,9 +930,10 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     @objc private func onColorChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.color = colorWell.color
-        ctrl.accentColor = colorWell.color
-        colorDot.layer?.backgroundColor = colorWell.color.cgColor
+        let picked = colorWell.color
+        ctrl.accentColor = picked
+        ctrl.color = DeriveDarkBaseColor(from: picked)
+        colorDot.layer?.backgroundColor = picked.cgColor
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 

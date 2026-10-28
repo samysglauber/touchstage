@@ -1194,6 +1194,14 @@ public class MidiSurfaceView extends View {
         return Color.argb(a, red, green, blue);
     }
 
+    private int deriveDarkBaseColor(int accentColor) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(accentColor, hsv);
+        hsv[1] = Math.min(1.0f, Math.max(0.65f, hsv[1] * 1.15f));
+        hsv[2] = Math.max(0.12f, Math.min(0.42f, hsv[2] * 0.38f));
+        return Color.HSVToColor(hsv);
+    }
+
     private void setFaderPressed(ControlModel ctrl, boolean pressed) {
         if (ctrl == null) return;
         if (ctrl.isFaderPressed == pressed) return;
@@ -1679,7 +1687,8 @@ public class MidiSurfaceView extends View {
                 canvas.scale(btnScale, btnScale, btnCx, btnCy);
             }
 
-            int faceCol = blendColors(Color.parseColor("#12141A"), ctrl.color, btnActivation);
+            int baseCol = (ctrl.color == ctrl.accentColor) ? deriveDarkBaseColor(ctrl.accentColor) : ctrl.color;
+            int faceCol = blendColors(Color.parseColor("#12141A"), baseCol, btnActivation);
             paintFill.setShader(null);
             paintFill.setColor(faceCol);
             canvas.drawRoundRect(btnRect, 8.0f, 8.0f, paintFill);
@@ -1854,7 +1863,8 @@ public class MidiSurfaceView extends View {
                 paintStroke.setStrokeWidth(1.0f);
                 canvas.drawCircle(cx, cy, centerR, paintStroke);
 
-                float fontSize = Math.max(9.0f, Math.min(13.0f, centerR * 0.74f));
+                float autoFontSize = Math.max(9.0f, Math.min(14.0f, centerR * 0.74f));
+                float fontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize;
                 paintText.setColor(Color.WHITE);
                 paintText.setTextSize(fontSize);
                 paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
@@ -1863,8 +1873,10 @@ public class MidiSurfaceView extends View {
                 canvas.drawText(valStr, cx, textBaseY, paintText);
             } else {
                 // Bottom badge pill
-                float badgeW = Math.max(42.0f, (float)valStr.length() * 8.5f + 14.0f);
-                float badgeH = 16.0f;
+                float autoFontSize = 10.0f;
+                float fontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize;
+                float badgeW = Math.max(42.0f, (float)valStr.length() * (fontSize * 0.85f) + 14.0f);
+                float badgeH = Math.max(16.0f, fontSize + 6.0f);
                 float badgeY;
                 if (hasLabel && pillRect != null && !isTop) {
                     badgeY = pillRect.top - badgeH - 3.0f;
@@ -1882,7 +1894,7 @@ public class MidiSurfaceView extends View {
                 canvas.drawRoundRect(badgeRect, 4.0f, 4.0f, paintStroke);
 
                 paintText.setColor(ctrl.accentColor);
-                paintText.setTextSize(10.0f);
+                paintText.setTextSize(fontSize);
                 paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
                 Paint.FontMetrics fm = paintText.getFontMetrics();
                 float textBaseY = badgeRect.centerY() - (fm.ascent + fm.descent) / 2.0f;
@@ -1974,7 +1986,8 @@ public class MidiSurfaceView extends View {
             // Inner Face
             float faceR = haloR - 4.0f;
             int unlitFace = Color.parseColor("#15171D");
-            int faceColor = blendColors(unlitFace, ctrl.color, activation);
+            int baseColor = (ctrl.color == ctrl.accentColor) ? deriveDarkBaseColor(ctrl.accentColor) : ctrl.color;
+            int faceColor = blendColors(unlitFace, baseColor, activation);
 
             paintFill.setShader(null);
             paintFill.setColor(faceColor);
@@ -2027,7 +2040,8 @@ public class MidiSurfaceView extends View {
             // Square Illuminated Pad
             float cornerR = 12.0f;
             int unlitFace = Color.parseColor("#121318");
-            int faceColor = blendColors(unlitFace, ctrl.color, activation);
+            int baseColor = (ctrl.color == ctrl.accentColor) ? deriveDarkBaseColor(ctrl.accentColor) : ctrl.color;
+            int faceColor = blendColors(unlitFace, baseColor, activation);
 
             // Pad Interior Face
             paintFill.setShader(null);

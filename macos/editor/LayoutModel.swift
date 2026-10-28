@@ -19,6 +19,20 @@ public func HexFromColor(_ color: NSColor?) -> String {
     return String(format: "#%02x%02x%02x", r, g, b)
 }
 
+public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
+    guard let color = color else { return NSColor(calibratedWhite: 0.12, alpha: 1.0) }
+    let rgb = color.usingColorSpace(.deviceRGB) ?? color
+    var h: CGFloat = 0
+    var s: CGFloat = 0
+    var b: CGFloat = 0
+    var a: CGFloat = 0
+    rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+    
+    let newS = min(1.0, max(0.65, s * 1.15))
+    let newB = max(0.12, min(0.42, b * 0.38))
+    return NSColor(hue: h, saturation: newS, brightness: newB, alpha: 1.0)
+}
+
 @objc public class MidiControlModel: NSObject, NSCopying {
     public var controlId: String = ""
     public var type: String = "fader" // "fader", "knob", "button", "xypad", "label"
@@ -40,6 +54,7 @@ public func HexFromColor(_ color: NSColor?) -> String {
     public var knobStyle: String = "standard" // "standard", "inverted", "centered"
     public var valueDisplay: String = "none" // "none", "scale", "percent"
     public var valuePosition: String = "center" // "center", "bottom"
+    public var valueFontSize: CGFloat = 0.0 // 0 = auto
     public var faderStyle: String = "standard" // "standard", "inverted", "centered"
     public var fontSize: CGFloat = 0.0
     public var shape: String = "square" // "square", "circle"
@@ -80,6 +95,7 @@ public func HexFromColor(_ color: NSColor?) -> String {
         copy.knobStyle = self.knobStyle
         copy.valueDisplay = self.valueDisplay
         copy.valuePosition = self.valuePosition
+        copy.valueFontSize = self.valueFontSize
         copy.faderStyle = self.faderStyle
         copy.fontSize = self.fontSize
         copy.shape = self.shape
@@ -124,6 +140,7 @@ public func HexFromColor(_ color: NSColor?) -> String {
         m.knobStyle = (dict["knobStyle"] as? String) ?? "standard"
         m.valueDisplay = (dict["valueDisplay"] as? String) ?? "none"
         m.valuePosition = (dict["valuePosition"] as? String) ?? "center"
+        m.valueFontSize = CGFloat((dict["valueFontSize"] as? NSNumber)?.doubleValue ?? 0.0)
         m.faderStyle = (dict["faderStyle"] as? String) ?? "standard"
         m.fontSize = CGFloat((dict["fontSize"] as? NSNumber)?.doubleValue ?? 0.0)
         m.shape = (dict["shape"] as? String) ?? "square"
@@ -167,6 +184,9 @@ public func HexFromColor(_ color: NSColor?) -> String {
 
         if fontSize > 0 {
             dict["fontSize"] = fontSize
+        }
+        if valueFontSize > 0 {
+            dict["valueFontSize"] = valueFontSize
         }
 
         if type == "fader" {
