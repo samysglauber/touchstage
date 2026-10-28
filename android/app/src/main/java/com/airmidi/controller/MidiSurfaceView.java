@@ -1665,11 +1665,11 @@ public class MidiSurfaceView extends View {
             float btnCy = btnRect.centerY();
 
             if (ctrl.buttonGlowAlpha > 0.01f) {
-                float maxExp = dp(8);
+                float maxExp = 8.0f;
                 float curExp = ctrl.buttonGlowProgress * maxExp;
                 paintStroke.setStyle(Paint.Style.STROKE);
                 paintStroke.setColor(adjustAlpha(ctrl.accentColor, ctrl.buttonGlowAlpha * 0.30f));
-                paintStroke.setStrokeWidth(dp(1.0f) * (1.0f - ctrl.buttonGlowProgress * 0.6f));
+                paintStroke.setStrokeWidth(1.0f * (1.0f - ctrl.buttonGlowProgress * 0.6f));
                 RectF waveR = new RectF(btnRect.left - curExp, btnRect.top - curExp, btnRect.right + curExp, btnRect.bottom + curExp);
                 canvas.drawRoundRect(waveR, 8.0f + curExp * 0.5f, 8.0f + curExp * 0.5f, paintStroke);
             }
@@ -1765,7 +1765,7 @@ public class MidiSurfaceView extends View {
             // Center notch tick
             paintStroke.setColor(Color.parseColor("#4F5466"));
             paintStroke.setStrokeWidth(2.0f);
-            canvas.drawLine(cx, cy - haloRadius - dp(2), cx, cy - haloRadius + dp(4), paintStroke);
+            canvas.drawLine(cx, cy - haloRadius - 2.0f, cx, cy - haloRadius + 4.0f, paintStroke);
 
             if (pct >= 0.5f) {
                 float sweep = (pct - 0.5f) * 270.0f;
@@ -1816,17 +1816,8 @@ public class MidiSurfaceView extends View {
         String valPos = (ctrl.valuePosition != null) ? ctrl.valuePosition.toLowerCase() : "center";
         boolean hasValueDisplay = !"none".equals(valDisplay);
 
-        double rad = Math.toRadians(needleAngle);
-        float needleStartR = (hasValueDisplay && "center".equals(valPos)) ? (dialFaceR * 0.46f + dp(2.0f)) : (dialFaceR * 0.15f);
-        float pStartX = cx + (float)Math.cos(rad) * needleStartR;
-        float pStartY = cy + (float)Math.sin(rad) * needleStartR;
-        float pEndX = cx + (float)Math.cos(rad) * (dialFaceR * 0.85f);
-        float pEndY = cy + (float)Math.sin(rad) * (dialFaceR * 0.85f);
-        drawGlowingLine(canvas, pStartX, pStartY, pEndX, pEndY, ctrl.accentColor, 3.5f);
-
-        // 5. Knob Value Readout (Center Cap or Bottom Badge)
+        String valStr = "";
         if (hasValueDisplay) {
-            String valStr;
             if ("percent".equals(valDisplay)) {
                 int p = Math.round(pct * 100.0f);
                 valStr = p + "%";
@@ -1835,41 +1826,23 @@ public class MidiSurfaceView extends View {
                 int actualVal = Math.round(ctrl.minValue + (pct * vRange));
                 valStr = String.valueOf(actualVal);
             }
+        }
+        boolean isCenterVal = hasValueDisplay && "center".equals(valPos);
 
+        double rad = Math.toRadians(needleAngle);
+        float needleStartR = isCenterVal ? (dialFaceR * 0.50f) : (dialFaceR * 0.20f);
+        float pStartX = cx + (float)Math.cos(rad) * needleStartR;
+        float pStartY = cy + (float)Math.sin(rad) * needleStartR;
+        float pEndX = cx + (float)Math.cos(rad) * (dialFaceR * 0.85f);
+        float pEndY = cy + (float)Math.sin(rad) * (dialFaceR * 0.85f);
+        drawGlowingLine(canvas, pStartX, pStartY, pEndX, pEndY, ctrl.accentColor, 3.5f);
+
+        // 5. Knob Value Readout (Center Cap or Bottom Badge)
+        if (hasValueDisplay && !valStr.isEmpty()) {
             paintText.setLetterSpacing(0.0f);
             paintText.setTextAlign(Paint.Align.CENTER);
 
-            if ("bottom".equals(valPos)) {
-                // Bottom badge pill
-                float badgeW = Math.max(dp(38.0f), dialFaceR * 1.0f);
-                float badgeH = dp(17.0f);
-                float badgeY;
-                if (hasLabel && pillRect != null) {
-                    if (isTop) {
-                        badgeY = ctrl.y + ctrl.height - badgeH - dp(2.0f);
-                    } else {
-                        badgeY = pillRect.top - badgeH - dp(3.0f);
-                    }
-                } else {
-                    badgeY = ctrl.y + ctrl.height - badgeH - dp(2.0f);
-                }
-                RectF badgeRect = new RectF(cx - badgeW / 2.0f, badgeY, cx + badgeW / 2.0f, badgeY + badgeH);
-
-                paintFill.setShader(null);
-                paintFill.setColor(Color.parseColor("#0C0D12"));
-                canvas.drawRoundRect(badgeRect, dp(4.0f), dp(4.0f), paintFill);
-
-                paintStroke.setColor(adjustAlpha(ctrl.accentColor, 0.45f));
-                paintStroke.setStrokeWidth(dp(1.0f));
-                canvas.drawRoundRect(badgeRect, dp(4.0f), dp(4.0f), paintStroke);
-
-                paintText.setColor(ctrl.accentColor);
-                paintText.setTextSize(dp(10.0f));
-                paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
-                Paint.FontMetrics fm = paintText.getFontMetrics();
-                float textBaseY = badgeRect.centerY() - (fm.ascent + fm.descent) / 2.0f;
-                canvas.drawText(valStr, badgeRect.centerX(), textBaseY, paintText);
-            } else {
+            if (isCenterVal) {
                 // Center circular cap readout
                 float centerR = dialFaceR * 0.46f;
 
@@ -1878,15 +1851,42 @@ public class MidiSurfaceView extends View {
                 canvas.drawCircle(cx, cy, centerR, paintFill);
 
                 paintStroke.setColor(adjustAlpha(ctrl.accentColor, 0.55f));
-                paintStroke.setStrokeWidth(dp(1.0f));
+                paintStroke.setStrokeWidth(1.0f);
                 canvas.drawCircle(cx, cy, centerR, paintStroke);
 
+                float fontSize = Math.max(9.0f, Math.min(13.0f, centerR * 0.74f));
                 paintText.setColor(Color.WHITE);
-                paintText.setTextSize(Math.max(dp(9.0f), centerR * 0.72f));
+                paintText.setTextSize(fontSize);
                 paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
                 Paint.FontMetrics fm = paintText.getFontMetrics();
                 float textBaseY = cy - (fm.ascent + fm.descent) / 2.0f;
                 canvas.drawText(valStr, cx, textBaseY, paintText);
+            } else {
+                // Bottom badge pill
+                float badgeW = Math.max(42.0f, (float)valStr.length() * 8.5f + 14.0f);
+                float badgeH = 16.0f;
+                float badgeY;
+                if (hasLabel && pillRect != null && !isTop) {
+                    badgeY = pillRect.top - badgeH - 3.0f;
+                } else {
+                    badgeY = cy + radius + 3.0f;
+                }
+                RectF badgeRect = new RectF(cx - badgeW / 2.0f, badgeY, cx + badgeW / 2.0f, badgeY + badgeH);
+
+                paintFill.setShader(null);
+                paintFill.setColor(Color.parseColor("#0C0D12"));
+                canvas.drawRoundRect(badgeRect, 4.0f, 4.0f, paintFill);
+
+                paintStroke.setColor(adjustAlpha(ctrl.accentColor, 0.45f));
+                paintStroke.setStrokeWidth(0.8f);
+                canvas.drawRoundRect(badgeRect, 4.0f, 4.0f, paintStroke);
+
+                paintText.setColor(ctrl.accentColor);
+                paintText.setTextSize(10.0f);
+                paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+                Paint.FontMetrics fm = paintText.getFontMetrics();
+                float textBaseY = badgeRect.centerY() - (fm.ascent + fm.descent) / 2.0f;
+                canvas.drawText(valStr, badgeRect.centerX(), textBaseY, paintText);
             }
             paintText.setTypeface(Typeface.DEFAULT);
         }
@@ -1927,12 +1927,12 @@ public class MidiSurfaceView extends View {
 
         // 1. Motion Graphics: Outer Expanding Shockwave Pulse Ring (discreet)
         if (ctrl.buttonGlowAlpha > 0.01f) {
-            float maxExpand = dp(10);
+            float maxExpand = 10.0f;
             float curExpand = ctrl.buttonGlowProgress * maxExpand;
             int shockColor = adjustAlpha(ctrl.accentColor, ctrl.buttonGlowAlpha * 0.35f);
             paintStroke.setStyle(Paint.Style.STROKE);
             paintStroke.setColor(shockColor);
-            paintStroke.setStrokeWidth(dp(1.0f) * (1.0f - ctrl.buttonGlowProgress * 0.6f));
+            paintStroke.setStrokeWidth(1.0f * (1.0f - ctrl.buttonGlowProgress * 0.6f));
             if (isCircle) {
                 float size = Math.min(r.width(), r.height());
                 float radius = size / 2.0f;
