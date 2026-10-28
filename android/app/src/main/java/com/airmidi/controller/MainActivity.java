@@ -215,7 +215,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
         // Title
         TextView title = new TextView(this);
-        title.setText(hasSavedPreset ? "Atualizar Layout" : "Novo Layout Recebido");
+        title.setText(hasSavedPreset ? "Update Layout" : "New Layout Received");
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -227,8 +227,8 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         String name = layout.name != null ? layout.name : "Custom";
         int count = layout.controls != null ? layout.controls.size() : 0;
         int screens = layout.pages != null ? layout.pages.size() : 1;
-        String desc = (screens > 1) ? ("\" (" + screens + " telas, " + count + " controles)") : ("\" (" + count + " controles)");
-        sub.setText("O Mac sincronizou o layout \"" + name + desc + ".\nDeseja carregar este layout?");
+        String desc = (screens > 1) ? ("\" (" + screens + " screens, " + count + " controls)") : ("\" (" + count + " controls)");
+        sub.setText("Your Mac synced layout \"" + name + desc + ".\nDo you want to load this layout?");
         sub.setTextColor(Color.parseColor("#8E8E93"));
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         sub.setGravity(Gravity.CENTER);
@@ -237,7 +237,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
         // Button 1: Save and Apply (or Apply if already saved)
         TextView btnSaveAndApply = new TextView(this);
-        btnSaveAndApply.setText(hasSavedPreset ? "Atualizar Layout" : "Atualizar e Salvar Preset");
+        btnSaveAndApply.setText(hasSavedPreset ? "Update Layout" : "Update and Save Preset");
         btnSaveAndApply.setTextColor(Color.WHITE);
         btnSaveAndApply.setTypeface(Typeface.DEFAULT_BOLD);
         btnSaveAndApply.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
@@ -255,7 +255,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         // Button 2: Only Apply (if not already saved)
         if (!hasSavedPreset) {
             TextView btnOnlyApply = new TextView(this);
-            btnOnlyApply.setText("Apenas Carregar sem Salvar");
+            btnOnlyApply.setText("Load Without Saving");
             btnOnlyApply.setTextColor(Color.WHITE);
             btnOnlyApply.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             btnOnlyApply.setGravity(Gravity.CENTER);
@@ -276,7 +276,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
         // Button 3: Cancel
         TextView btnCancel = new TextView(this);
-        btnCancel.setText("Cancelar");
+        btnCancel.setText("Cancel");
         btnCancel.setTextColor(Color.parseColor("#8E8E93"));
         btnCancel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         btnCancel.setGravity(Gravity.CENTER);

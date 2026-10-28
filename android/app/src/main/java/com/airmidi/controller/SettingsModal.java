@@ -181,13 +181,13 @@ public class SettingsModal {
         populatePresets(presetsContainer);
 
         // -------------------------------------------------------------
-        // SECTION 3: BAR POSITION (POSIÇÃO DA BARRA)
+        // SECTION 3: SIDEBAR POSITION
         // -------------------------------------------------------------
-        content.addView(createSectionHeader("SIDEBAR POSITION / POSIÇÃO DA BARRA"));
+        content.addView(createSectionHeader("SIDEBAR POSITION"));
 
         View landscapeRow = createSegmentedRow(
-            "Barra Lateral (Modo Paisagem)",
-            new String[]{ "À Direita (Padrão)", "À Esquerda" },
+            "Landscape Sidebar",
+            new String[]{ "Right (Default)", "Left" },
             new String[]{ "right", "left" },
             currentLandscapePos,
             newVal -> {
@@ -200,8 +200,8 @@ public class SettingsModal {
         content.addView(landscapeRow);
 
         View portraitRow = createSegmentedRow(
-            "Barra de Controle (Modo Retrato)",
-            new String[]{ "Em Baixo (Padrão)", "Em Cima" },
+            "Portrait Control Bar",
+            new String[]{ "Bottom (Default)", "Top" },
             new String[]{ "bottom", "top" },
             currentPortraitPos,
             newVal -> {
@@ -374,7 +374,7 @@ public class SettingsModal {
         textCol.addView(text);
 
         TextView tagText = new TextView(context);
-        tagText.setText(item.isCustom ? "Salvo no celular" : "Padrão");
+        tagText.setText(item.isCustom ? "Saved on Device" : "Default");
         tagText.setTextColor(Color.parseColor("#8E8E93"));
         tagText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         textCol.addView(tagText);
@@ -383,7 +383,7 @@ public class SettingsModal {
 
         if (item.isCustom) {
             TextView delBtn = new TextView(context);
-            delBtn.setText("Excluir");
+            delBtn.setText("Delete");
             delBtn.setTextColor(Color.parseColor("#FF453A"));
             delBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             delBtn.setPadding(dp(6), dp(4), dp(10), dp(4));
@@ -395,7 +395,7 @@ public class SettingsModal {
         }
 
         TextView arrow = new TextView(context);
-        arrow.setText("Carregar");
+        arrow.setText("Load");
         arrow.setTextColor(Color.parseColor("#0A84FF"));
         arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         arrow.setTypeface(Typeface.DEFAULT_BOLD);
