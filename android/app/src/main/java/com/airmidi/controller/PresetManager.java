@@ -39,7 +39,7 @@ public class PresetManager {
         List<PresetItem> list = new ArrayList<>();
 
         // 1. Built-in presets (Only the first primary preset)
-        list.add(new PresetItem("builtin_stage6", "Stage 6-Track", "preset_stage6.json", null, false));
+        list.add(new PresetItem("builtin_stage8", "Stage 8-Track", "preset_stage8.json", null, false));
 
         // 2. Custom user presets stored on device
         File dir = getPresetsDir(ctx);

@@ -147,7 +147,7 @@ public class TouchStageRecentRowButton: NSButton {
         (projectName as NSString).draw(at: NSPoint(x: 46, y: 8.0), withAttributes: titleAttr)
 
         var sub = isPortrait ? "Vertical (460 × 920)" : "Horizontal (920 × 460)"
-        if projectPath == "builtin_stage6" {
+        if projectPath == "builtin_stage8" {
             sub += " • Factory Preset"
         } else if !projectPath.isEmpty {
             let folder = (projectPath as NSString).deletingLastPathComponent
@@ -439,8 +439,8 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
     public func reloadPresetsMenu() {
         presetsPopup.removeAllItems()
 
-        let item1 = NSMenuItem(title: "Stage 6-Track", action: nil, keyEquivalent: "")
-        item1.representedObject = "builtin_stage6"
+        let item1 = NSMenuItem(title: "Stage 8-Track", action: nil, keyEquivalent: "")
+        item1.representedObject = "builtin_stage8"
         item1.image = AirSymbol("slider.vertical.3", 12.0)
         presetsPopup.menu?.addItem(item1)
 
@@ -529,9 +529,9 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         if let rep = item.representedObject as? String {
             if rep == "current_unsaved" {
                 return
-            } else if rep == "builtin_stage6" {
+            } else if rep == "builtin_stage8" {
                 layout = LayoutModel.referencePreset()
-                recordRecentProject(named: "Stage 6-Track", path: "builtin_stage6", orientation: "landscape")
+                recordRecentProject(named: "Stage 8-Track", path: "builtin_stage8", orientation: "landscape")
             } else {
                 if let data = try? Data(contentsOf: URL(fileURLWithPath: rep)),
                    let loaded = try? LayoutModel.layout(fromJSONData: data) {
@@ -836,8 +836,8 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
 
         // 1. Built-in
         results.append([
-            "name": "Stage 6-Track",
-            "path": "builtin_stage6",
+            "name": "Stage 8-Track",
+            "path": "builtin_stage8",
             "orientation": "landscape"
         ])
 
@@ -870,7 +870,7 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
             for item in savedRecents {
                 let p = item["path"] as? String ?? ""
                 let name = item["name"] as? String ?? ""
-                if !p.lowercased().contains("builtin_stage6") {
+                if !p.lowercased().contains("builtin_stage8") && !p.lowercased().contains("builtin_stage6") {
                     let alreadyAdded = results.contains {
                         ($0["path"] as? String == p) || ($0["name"] as? String == name)
                     }
@@ -1064,7 +1064,7 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
     }
 
     private func openRecentProject(path: String, name: String) {
-        if path == "builtin_stage6" {
+        if path == "builtin_stage8" || path == "builtin_stage6" {
             layout = LayoutModel.referencePreset()
         } else if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
             if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),

@@ -367,204 +367,92 @@ public func HexFromColor(_ color: NSColor?) -> String {
         return l
     }
 
-    // Reference Preset: Stage 6-Track (Mixer Rig + Lead & FX)
+    // Reference Factory Preset: Stage 8-Track (8 Faders, 8 Buttons, 8 Knobs locked to 20px Grid)
     public static func referencePreset() -> LayoutModel {
         let l = LayoutModel()
-        l.name = "Live Stage Rig"
+        l.name = "Stage 8-Track"
         l.canvasWidth = 920.0
         l.canvasHeight = 460.0
         l.pages.removeAll()
 
-        // Page 1: Main Mixer Rig
-        let page1 = LayoutPageModel.page(withName: "Mixer Rig")
+        let page1 = LayoutPageModel.page(withName: "Mixer 8-Track")
 
-        let channels: [[String: Any]] = [
-            ["id": "piano",   "label": "PIANO",   "color": "#005f73", "accent": "#00F0FF", "x": 12.0,  "cc": 11, "note": 60, "val": 78.0],
-            ["id": "pad",     "label": "PAD",     "color": "#475569", "accent": "#E0F7FF", "x": 120.0, "cc": 12, "note": 62, "val": 85.0],
-            ["id": "rhodes",  "label": "RHODES",  "color": "#4c1d95", "accent": "#C084FC", "x": 228.0, "cc": 13, "note": 64, "val": 82.0],
-            ["id": "organ",   "label": "ORGAN",   "color": "#78350f", "accent": "#FBBF24", "x": 336.0, "cc": 14, "note": 65, "val": 80.0],
-            ["id": "synth",   "label": "SYNTH",   "color": "#064e3b", "accent": "#00E676", "x": 444.0, "cc": 15, "note": 67, "val": 84.0],
-            ["id": "galileu", "label": "GALILEU", "color": "#831843", "accent": "#FF2E93", "x": 552.0, "cc": 16, "note": 69, "val": 76.0]
+        let channels: [[String: String]] = [
+            ["id": "ch1", "label": "CH 1", "color": "#005f73", "accent": "#00F0FF"],
+            ["id": "ch2", "label": "CH 2", "color": "#0369a1", "accent": "#38BDF8"],
+            ["id": "ch3", "label": "CH 3", "color": "#4c1d95", "accent": "#C084FC"],
+            ["id": "ch4", "label": "CH 4", "color": "#78350f", "accent": "#FBBF24"],
+            ["id": "ch5", "label": "CH 5", "color": "#064e3b", "accent": "#00E676"],
+            ["id": "ch6", "label": "CH 6", "color": "#831843", "accent": "#FF2E93"],
+            ["id": "ch7", "label": "CH 7", "color": "#881337", "accent": "#FB7185"],
+            ["id": "ch8", "label": "CH 8", "color": "#3f6212", "accent": "#A3E635"]
         ]
 
-        for info in channels {
-            let x = info["x"] as! Double
+        let faderVals: [Double] = [80.0, 85.0, 82.0, 80.0, 84.0, 76.0, 88.0, 72.0]
+        let knobVals: [Double] = [64.0, 50.0, 64.0, 50.0, 64.0, 50.0, 64.0, 50.0]
 
-            // 1. Vertical Fader
-            let m = MidiControlModel()
-            m.controlId = "fader_\(info["id"] as! String)"
-            m.type = "fader"
-            m.label = info["label"] as! String
-            m.frame = NSRect(x: x, y: 12, width: 92, height: 235)
-            m.color = ColorFromHex(info["color"] as? String)
-            m.accentColor = ColorFromHex(info["accent"] as? String)
-            m.midiChannel = 1
-            m.midiType = "cc"
-            m.midiNumber = info["cc"] as! Int
-            m.minValue = 0
-            m.maxValue = 127
-            m.value = info["val"] as! Double
-            m.hasLabel = true
-            m.labelPosition = "top"
-            page1.controls.append(m)
+        for i in 0..<8 {
+            let ch = channels[i]
+            let x: CGFloat = CGFloat(60 + i * 100) // 20px grid aligned: 60, 160, 260, 360, 460, 560, 660, 760
 
-            // 2. Square Illuminated Pad Button
+            // 1. Vertical Fader (80 x 220 at y=20 -> ends at y=240)
+            let f = MidiControlModel()
+            f.controlId = "fader_\(ch["id"]!)"
+            f.type = "fader"
+            f.label = ch["label"]!
+            f.frame = NSRect(x: x, y: 20, width: 80, height: 220)
+            f.color = ColorFromHex(ch["color"])
+            f.accentColor = ColorFromHex(ch["accent"])
+            f.midiChannel = 1
+            f.midiType = "cc"
+            f.midiNumber = 11 + i
+            f.minValue = 0
+            f.maxValue = 127
+            f.value = faderVals[i]
+            f.hasLabel = true
+            f.labelPosition = "top"
+            page1.controls.append(f)
+
+            // 2. Toggle Illuminated Pad Button (80 x 60 at y=260 -> ends at y=320)
             let btn = MidiControlModel()
-            btn.controlId = "btn_\(info["id"] as! String)"
+            btn.controlId = "btn_\(ch["id"]!)"
             btn.type = "button"
             btn.shape = "square"
             btn.label = ""
-            btn.frame = NSRect(x: x + 11, y: 258, width: 70, height: 68)
-            btn.color = ColorFromHex(info["color"] as? String)
-            btn.accentColor = ColorFromHex(info["accent"] as? String)
+            btn.frame = NSRect(x: x, y: 260, width: 80, height: 60)
+            btn.color = ColorFromHex(ch["color"])
+            btn.accentColor = ColorFromHex(ch["accent"])
             btn.midiChannel = 1
             btn.midiType = "note"
-            btn.midiNumber = info["note"] as! Int
+            btn.midiNumber = 60 + i
             btn.mode = "toggle"
             btn.value = 127
             page1.controls.append(btn)
 
-            // 3. Bottom Rotary Knob
+            // 3. Rotary Knob with Value Readout (80 x 80 at y=340 -> ends at y=420)
             let kn = MidiControlModel()
-            kn.controlId = "knob_\(info["id"] as! String)"
+            kn.controlId = "knob_\(ch["id"]!)"
             kn.type = "knob"
             kn.shape = "circle"
             kn.label = ""
-            kn.frame = NSRect(x: x + 13, y: 338, width: 66, height: 76)
-            kn.color = ColorFromHex(info["color"] as? String)
-            kn.accentColor = ColorFromHex(info["accent"] as? String)
+            kn.frame = NSRect(x: x, y: 340, width: 80, height: 80)
+            kn.color = ColorFromHex(ch["color"])
+            kn.accentColor = ColorFromHex(ch["accent"])
             kn.midiChannel = 1
             kn.midiType = "cc"
-            kn.midiNumber = 20 + (info["cc"] as! Int)
+            kn.midiNumber = 21 + i
             kn.minValue = 0
             kn.maxValue = 127
-            kn.value = 64
+            kn.value = knobVals[i]
             kn.hasLabel = false
+            kn.valueDisplay = "scale"
+            kn.valuePosition = "center"
             page1.controls.append(kn)
         }
 
-        // Right Column: BELLS Pad
-        let bells = MidiControlModel()
-        bells.controlId = "pad_bells"
-        bells.type = "button"
-        bells.shape = "square"
-        bells.label = "BELLS"
-        bells.frame = NSRect(x: 666, y: 12, width: 150, height: 140)
-        bells.color = ColorFromHex("#78350f")
-        bells.accentColor = ColorFromHex("#FBBF24")
-        bells.midiChannel = 1
-        bells.midiType = "note"
-        bells.midiNumber = 72
-        bells.mode = "momentary"
-        bells.value = 127
-        page1.controls.append(bells)
-
-        // Right Column: SYNTH FILTER Big Knob
-        let knob = MidiControlModel()
-        knob.controlId = "knob_synth_filter"
-        knob.type = "knob"
-        knob.label = ""
-        knob.frame = NSRect(x: 666, y: 168, width: 150, height: 190)
-        knob.color = ColorFromHex("#064e3b")
-        knob.accentColor = ColorFromHex("#00E676")
-        knob.midiChannel = 1
-        knob.midiType = "cc"
-        knob.midiNumber = 74
-        knob.minValue = 0
-        knob.maxValue = 127
-        knob.value = 64
-        knob.hasLabel = false
-        page1.controls.append(knob)
-
-        // Right Column: SYNTH FILTER Capsule Label
-        let lblFilter = MidiControlModel()
-        lblFilter.controlId = "lbl_synth_filter"
-        lblFilter.type = "label"
-        lblFilter.label = "SYNTH FILTER"
-        lblFilter.frame = NSRect(x: 666, y: 375, width: 150, height: 34)
-        lblFilter.hasBackground = true
-        lblFilter.accentColor = ColorFromHex("#00E676")
-        page1.controls.append(lblFilter)
-
         l.pages.append(page1)
-
-        // Page 2: Lead & Synth FX
-        let page2 = LayoutPageModel.page(withName: "Lead & FX")
-
-        let xy = MidiControlModel()
-        xy.controlId = "xy_filter_resonance"
-        xy.type = "xypad"
-        xy.label = "XY MORPH / FILTER"
-        xy.frame = NSRect(x: 40, y: 40, width: 360, height: 360)
-        xy.color = ColorFromHex("#1a2332")
-        xy.accentColor = ColorFromHex("#00e5ff")
-        xy.midiChannel = 1
-        xy.midiType = "cc"
-        xy.midiNumber = 1
-        page2.controls.append(xy)
-
-        let k1 = MidiControlModel()
-        k1.controlId = "knob_reverb"
-        k1.type = "knob"
-        k1.label = "REVERB"
-        k1.frame = NSRect(x: 460, y: 40, width: 120, height: 150)
-        k1.color = ColorFromHex("#280659")
-        k1.accentColor = ColorFromHex("#5f27cd")
-        k1.midiChannel = 1
-        k1.midiType = "cc"
-        k1.midiNumber = 91
-        k1.hasLabel = true
-        k1.labelPosition = "bottom"
-        page2.controls.append(k1)
-
-        let k2 = MidiControlModel()
-        k2.controlId = "knob_delay"
-        k2.type = "knob"
-        k2.label = "DELAY"
-        k2.frame = NSRect(x: 610, y: 40, width: 120, height: 150)
-        k2.color = ColorFromHex("#005f6b")
-        k2.accentColor = ColorFromHex("#00d2d3")
-        k2.midiChannel = 1
-        k2.midiType = "cc"
-        k2.midiNumber = 92
-        k2.hasLabel = true
-        k2.labelPosition = "bottom"
-        page2.controls.append(k2)
-
-        let k3 = MidiControlModel()
-        k3.controlId = "knob_chorus"
-        k3.type = "knob"
-        k3.label = "CHORUS"
-        k3.frame = NSRect(x: 760, y: 40, width: 120, height: 150)
-        k3.color = ColorFromHex("#40064a")
-        k3.accentColor = ColorFromHex("#ee5253")
-        k3.midiChannel = 1
-        k3.midiType = "cc"
-        k3.midiNumber = 93
-        k3.hasLabel = true
-        k3.labelPosition = "bottom"
-        page2.controls.append(k3)
-
-        // Trigger buttons
-        let padTitles = ["DROP", "SWEEP", "CRUSH", "STOP"]
-        for i in 0..<4 {
-            let pBtn = MidiControlModel()
-            pBtn.controlId = "fx_btn_\(i + 1)"
-            pBtn.type = "button"
-            pBtn.shape = "square"
-            pBtn.label = padTitles[i]
-            pBtn.frame = NSRect(x: 460 + i * 105, y: 230, width: 95, height: 95)
-            pBtn.color = ColorFromHex("#1e222d")
-            pBtn.accentColor = ColorFromHex("#ff9f43")
-            pBtn.midiChannel = 1
-            pBtn.midiType = "note"
-            pBtn.midiNumber = 80 + i
-            pBtn.mode = "momentary"
-            page2.controls.append(pBtn)
-        }
-
-        l.pages.append(page2)
         l.activePageIndex = 0
+        l.controls = page1.controls
         return l
     }
 
