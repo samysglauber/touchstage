@@ -34,6 +34,8 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
     private static final String PREF_MAC_IP = "pref_mac_ip";
     private static final String PREF_PORT = "pref_port";
     private static final String PREF_DEVICE_NAME = "pref_device_name";
+    public static final String PREF_SIDEBAR_LANDSCAPE = "pref_sidebar_landscape";
+    public static final String PREF_SIDEBAR_PORTRAIT = "pref_sidebar_portrait";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,15 +73,21 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         String savedHost = prefs.getString(PREF_MAC_IP, "");
         int savedPort = prefs.getInt(PREF_PORT, 9000);
         String deviceName = prefs.getString(PREF_DEVICE_NAME, Build.MODEL != null ? Build.MODEL : "Phone");
+        String landscapePos = prefs.getString(PREF_SIDEBAR_LANDSCAPE, "right");
+        String portraitPos = prefs.getString(PREF_SIDEBAR_PORTRAIT, "bottom");
 
         // 1. Midi Surface View (Full screen, zero UI clutter, minimalist corner indicator)
         surfaceView = new MidiSurfaceView(this);
+        surfaceView.setSidebarPositions(landscapePos, portraitPos);
         setContentView(surfaceView);
 
-        // 2. Load bundled default layout
-        LayoutModel defaultLayout = LayoutModel.loadFromAsset(this, "default_layout.json");
-        if (defaultLayout != null) {
-            applyLayout(defaultLayout);
+        // 2. Load active layout state (or fallback to bundled default layout)
+        LayoutModel activeLayout = LayoutModel.loadActiveLayoutState(this);
+        if (activeLayout == null) {
+            activeLayout = LayoutModel.loadFromAsset(this, "default_layout.json");
+        }
+        if (activeLayout != null) {
+            applyLayout(activeLayout);
         }
 
         // 3. Settings Modal
@@ -109,8 +117,18 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
                     networkManager.setDeviceName(newName);
                 }
             }
+
+            @Override
+            public void onSidebarPositionChanged(String newLandscapePos, String newPortraitPos) {
+                prefs.edit()
+                    .putString(PREF_SIDEBAR_LANDSCAPE, newLandscapePos)
+                    .putString(PREF_SIDEBAR_PORTRAIT, newPortraitPos)
+                    .apply();
+                surfaceView.setSidebarPositions(newLandscapePos, newPortraitPos);
+            }
         });
         settingsModal.setConnectedHost(savedHost);
+        settingsModal.setSidebarPositions(landscapePos, portraitPos);
 
         // Corner gear button click -> open settings
         surfaceView.setOnSettingsClickedListener(this::openSettings);
@@ -139,7 +157,9 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
     private void openSettings() {
         String currentName = prefs.getString(PREF_DEVICE_NAME, Build.MODEL != null ? Build.MODEL : "Phone");
-        settingsModal.show(discovery.getDevices(), currentName);
+        String lPos = prefs.getString(PREF_SIDEBAR_LANDSCAPE, "right");
+        String pPos = prefs.getString(PREF_SIDEBAR_PORTRAIT, "bottom");
+        settingsModal.show(discovery.getDevices(), currentName, lPos, pPos);
     }
 
     @Override
@@ -195,7 +215,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
         // Title
         TextView title = new TextView(this);
-        title.setText(hasSavedPreset ? "Atualizar Layout" : "Novo Layout Recebido");
+        title.setText(hasSavedPreset ? "Update Layout" : "New Layout Received");
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -207,8 +227,8 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         String name = layout.name != null ? layout.name : "Custom";
         int count = layout.controls != null ? layout.controls.size() : 0;
         int screens = layout.pages != null ? layout.pages.size() : 1;
-        String desc = (screens > 1) ? ("\" (" + screens + " telas, " + count + " controles)") : ("\" (" + count + " controles)");
-        sub.setText("O Mac sincronizou o layout \"" + name + desc + ".\nDeseja carregar este layout?");
+        String desc = (screens > 1) ? ("\" (" + screens + " screens, " + count + " controls)") : ("\" (" + count + " controls)");
+        sub.setText("Your Mac synced layout \"" + name + desc + ".\nDo you want to load this layout?");
         sub.setTextColor(Color.parseColor("#8E8E93"));
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         sub.setGravity(Gravity.CENTER);
@@ -217,7 +237,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
         // Button 1: Save and Apply (or Apply if already saved)
         TextView btnSaveAndApply = new TextView(this);
-        btnSaveAndApply.setText(hasSavedPreset ? "Atualizar Layout" : "Atualizar e Salvar Preset");
+        btnSaveAndApply.setText(hasSavedPreset ? "Update Layout" : "Update and Save Preset");
         btnSaveAndApply.setTextColor(Color.WHITE);
         btnSaveAndApply.setTypeface(Typeface.DEFAULT_BOLD);
         btnSaveAndApply.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
@@ -235,7 +255,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         // Button 2: Only Apply (if not already saved)
         if (!hasSavedPreset) {
             TextView btnOnlyApply = new TextView(this);
-            btnOnlyApply.setText("Apenas Carregar sem Salvar");
+            btnOnlyApply.setText("Load Without Saving");
             btnOnlyApply.setTextColor(Color.WHITE);
             btnOnlyApply.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             btnOnlyApply.setGravity(Gravity.CENTER);
@@ -256,7 +276,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
         // Button 3: Cancel
         TextView btnCancel = new TextView(this);
-        btnCancel.setText("Cancelar");
+        btnCancel.setText("Cancel");
         btnCancel.setTextColor(Color.parseColor("#8E8E93"));
         btnCancel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         btnCancel.setGravity(Gravity.CENTER);
@@ -289,6 +309,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         setRequestedOrientation(isPortrait ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         if (surfaceView != null) {
             surfaceView.setLayout(layout);
+            surfaceView.saveStateNow();
         }
     }
 
@@ -353,6 +374,22 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
             );
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (surfaceView != null) {
+            surfaceView.saveStateNow();
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (surfaceView != null) {
+            surfaceView.saveStateNow();
         }
     }
 

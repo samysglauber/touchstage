@@ -54,6 +54,35 @@ public class MidiSurfaceView extends View {
     private final RectF flyoutCardRect = new RectF();
     private final List<RectF> tabFlyoutItemRects = new ArrayList<>();
 
+    // Sidebar position configuration
+    private String sidebarLandscapePos = "right"; // "right" or "left"
+    private String sidebarPortraitPos = "bottom";  // "bottom" or "top"
+    private float canvasOriginX = 0f;
+    private float canvasOriginY = 0f;
+    private float availableW = 0f;
+    private float availableH = 0f;
+
+    // Asynchronous state persistence (Zero UI latency)
+    private static final java.util.concurrent.ExecutorService saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final android.os.Handler saveHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable saveRunnable = () -> {
+        if (layout != null) {
+            final String json = layout.toJsonString();
+            saveExecutor.execute(() -> {
+                try {
+                    java.io.File dir = getContext().getFilesDir();
+                    java.io.File temp = new java.io.File(dir, LayoutModel.ACTIVE_STATE_FILE + ".tmp");
+                    java.io.File target = new java.io.File(dir, LayoutModel.ACTIVE_STATE_FILE);
+                    java.io.FileOutputStream fos = new java.io.FileOutputStream(temp);
+                    fos.write(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    fos.flush();
+                    fos.close();
+                    temp.renameTo(target);
+                } catch (Exception ignored) {}
+            });
+        }
+    };
+
     // Bottom Tab Bar & Slide Transition ("Ease-Ease" Animation)
     private final RectF bottomTabBarRect = new RectF();
     private boolean isBottomSwipeActive = false;
@@ -230,6 +259,30 @@ public class MidiSurfaceView extends View {
         dragInBaseUnits = 0f;
         calculateScaleAndOffsets(getWidth(), getHeight());
         invalidate();
+        scheduleStateSave();
+    }
+
+    public LayoutModel getLayout() {
+        return layout;
+    }
+
+    public void setSidebarPositions(String landscapePos, String portraitPos) {
+        this.sidebarLandscapePos = (landscapePos != null && landscapePos.equalsIgnoreCase("left")) ? "left" : "right";
+        this.sidebarPortraitPos = (portraitPos != null && portraitPos.equalsIgnoreCase("top")) ? "top" : "bottom";
+        calculateScaleAndOffsets(getWidth(), getHeight());
+        invalidate();
+    }
+
+    public void scheduleStateSave() {
+        saveHandler.removeCallbacks(saveRunnable);
+        saveHandler.postDelayed(saveRunnable, 250);
+    }
+
+    public void saveStateNow() {
+        saveHandler.removeCallbacks(saveRunnable);
+        if (layout != null) {
+            LayoutModel.saveLayoutState(getContext(), layout);
+        }
     }
 
     public void setNetworkManager(MidiNetworkManager networkManager) {
@@ -520,6 +573,7 @@ public class MidiSurfaceView extends View {
         if (changed) {
             flashMidiLed();
             invalidate();
+            scheduleStateSave();
         }
     }
 
@@ -534,15 +588,14 @@ public class MidiSurfaceView extends View {
 
         boolean isPortrait = (viewH > viewW);
         float barSize = dp(56);
-        float availableW;
-        float availableH;
 
         if (isPortrait) {
-            // Dedicated bottom bar across the bottom edge
-            sidebarRect.set(0, viewH - barSize, viewW, viewH);
-
-            float barTop = viewH - barSize;
+            boolean isTop = "top".equalsIgnoreCase(sidebarPortraitPos);
+            float barTop = isTop ? 0 : (viewH - barSize);
+            float barBottom = isTop ? barSize : viewH;
             float barCenterY = barTop + barSize / 2.0f;
+
+            sidebarRect.set(0, barTop, viewW, barBottom);
 
             // 1. Settings Button (Left)
             float sRadius = dp(18);
@@ -558,17 +611,27 @@ public class MidiSurfaceView extends View {
 
             availableW = viewW;
             availableH = viewH - barSize;
+            canvasOriginX = 0f;
+            canvasOriginY = isTop ? barSize : 0f;
         } else {
-            // Dedicated vertical sidebar on the right edge (Landscape)
-            sidebarRect.set(viewW - barSize, 0, viewW, viewH);
+            boolean isLeft = "left".equalsIgnoreCase(sidebarLandscapePos);
+            float barLeft = isLeft ? 0 : (viewW - barSize);
+            float barRight = isLeft ? barSize : viewW;
+
+            sidebarRect.set(barLeft, 0, barRight, viewH);
+
+            float btnLeft = isLeft ? dp(6) : (viewW - dp(50));
+            float btnRight = isLeft ? dp(50) : (viewW - dp(6));
 
             // Sidebar Buttons & Indicators (Top to bottom)
-            settingsButtonRect.set(viewW - dp(50), dp(10), viewW - dp(6), dp(54));
-            tabsButtonRect.set(viewW - dp(50), dp(62), viewW - dp(6), dp(106));
-            batteryRect.set(viewW - dp(50), viewH - dp(56), viewW - dp(6), viewH - dp(10));
+            settingsButtonRect.set(btnLeft, dp(10), btnRight, dp(54));
+            tabsButtonRect.set(btnLeft, dp(62), btnRight, dp(106));
+            batteryRect.set(btnLeft, viewH - dp(56), btnRight, viewH - dp(10));
 
             availableW = viewW - barSize;
             availableH = viewH;
+            canvasOriginX = isLeft ? barSize : 0f;
+            canvasOriginY = 0f;
         }
 
         boolean hasMultipleTabs = (layout != null && layout.pages != null && layout.pages.size() > 1);
@@ -583,14 +646,14 @@ public class MidiSurfaceView extends View {
         float canvasW = baseW * scale;
         float canvasH = baseH * scale;
 
-        offsetX = (availableW - canvasW) / 2.0f;
-        offsetY = (availableH - canvasH) / 2.0f;
+        offsetX = canvasOriginX + (availableW - canvasW) / 2.0f;
+        offsetY = canvasOriginY + (availableH - canvasH) / 2.0f;
 
         if (hasMultipleTabs) {
             float barW = Math.max(dp(70), layout.pages.size() * dp(16) + dp(8));
             float barH = dp(3.5f);
-            float barX = (availableW - barW) / 2.0f;
-            float barY = availableH - dp(5.5f); // Positioned at bottom of playable controls area
+            float barX = canvasOriginX + (availableW - barW) / 2.0f;
+            float barY = canvasOriginY + availableH - dp(5.5f); // Positioned at bottom of playable controls area
             bottomTabBarRect.set(barX, barY, barX + barW, barY + barH);
         } else {
             bottomTabBarRect.setEmpty();
@@ -602,16 +665,12 @@ public class MidiSurfaceView extends View {
         super.onDraw(canvas);
         if (layout == null || layout.pages == null || layout.pages.isEmpty()) return;
 
-        boolean isPortrait = (getHeight() > getWidth());
-        float barSize = dp(56);
-        float availableW = isPortrait ? getWidth() : (getWidth() - barSize);
-        float availableH = isPortrait ? (getHeight() - barSize) : getHeight();
         float baseW = (layout.canvasWidth > 0) ? layout.canvasWidth : 920.0f;
         boolean hasMultipleTabs = (layout.pages.size() > 1);
 
         // 1. Draw Controls on scaled & centered canvas with clipping to prevent bar bleed
         canvas.save();
-        canvas.clipRect(0, 0, availableW, availableH);
+        canvas.clipRect(canvasOriginX, canvasOriginY, canvasOriginX + availableW, canvasOriginY + availableH);
         canvas.translate(offsetX, offsetY);
 
         float shiftPixels = dragInBaseUnits * scale;
@@ -847,6 +906,7 @@ public class MidiSurfaceView extends View {
                 recycleTransitionBitmaps();
                 performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                 invalidate();
+                scheduleStateSave();
             }
 
             @Override
@@ -902,9 +962,13 @@ public class MidiSurfaceView extends View {
         paintStroke.setColor(Color.parseColor("#26FFFFFF"));
         paintStroke.setStrokeWidth(dp(1));
         if (isPortrait) {
-            canvas.drawLine(0, sidebarRect.top, getWidth(), sidebarRect.top, paintStroke);
+            boolean isTop = "top".equalsIgnoreCase(sidebarPortraitPos);
+            float lineY = isTop ? sidebarRect.bottom : sidebarRect.top;
+            canvas.drawLine(0, lineY, getWidth(), lineY, paintStroke);
         } else {
-            canvas.drawLine(sidebarRect.left, 0, sidebarRect.left, getHeight(), paintStroke);
+            boolean isLeft = "left".equalsIgnoreCase(sidebarLandscapePos);
+            float lineX = isLeft ? sidebarRect.right : sidebarRect.left;
+            canvas.drawLine(lineX, 0, lineX, getHeight(), paintStroke);
         }
 
         // 1. Settings Button
@@ -1036,15 +1100,31 @@ public class MidiSurfaceView extends View {
         float cardH = count * itemH + dp(16);
 
         if (isPortrait) {
-            float cardBottom = sidebarRect.top - dp(8);
-            float cardTop = Math.max(dp(10), cardBottom - cardH);
+            boolean isTop = "top".equalsIgnoreCase(sidebarPortraitPos);
+            float cardTop;
+            float cardBottom;
+            if (isTop) {
+                cardTop = sidebarRect.bottom + dp(8);
+                cardBottom = Math.min(getHeight() - dp(10), cardTop + cardH);
+            } else {
+                cardBottom = sidebarRect.top - dp(8);
+                cardTop = Math.max(dp(10), cardBottom - cardH);
+            }
             float cardLeft = Math.max(dp(12), Math.min(tabsButtonRect.left, getWidth() - cardW - dp(12)));
             float cardRight = cardLeft + cardW;
             flyoutCardRect.set(cardLeft, cardTop, cardRight, cardBottom);
         } else {
+            boolean isLeft = "left".equalsIgnoreCase(sidebarLandscapePos);
             float cardTop = Math.min(tabsButtonRect.top, getHeight() - cardH - dp(10));
-            float cardRight = sidebarRect.left - dp(8);
-            float cardLeft = cardRight - cardW;
+            float cardLeft;
+            float cardRight;
+            if (isLeft) {
+                cardLeft = sidebarRect.right + dp(8);
+                cardRight = cardLeft + cardW;
+            } else {
+                cardRight = sidebarRect.left - dp(8);
+                cardLeft = cardRight - cardW;
+            }
             flyoutCardRect.set(cardLeft, cardTop, cardRight, cardTop + cardH);
         }
 
@@ -2157,17 +2237,15 @@ public class MidiSurfaceView extends View {
             return true; // Ignore control touches while smoothly animating
         }
 
-        boolean isPortrait = (getHeight() > getWidth());
-        float barSize = dp(56);
-        float availableW = isPortrait ? getWidth() : (getWidth() - barSize);
-        float availableH = isPortrait ? (getHeight() - barSize) : getHeight();
         boolean hasMultipleTabs = (layout != null && layout.pages != null && layout.pages.size() > 1);
         float bottomZoneH = dp(32);
 
         // Check if user initiated bottom tab bar slide gesture
-        boolean inTabGestureZone = isPortrait
-                ? (hasMultipleTabs && rawY >= (availableH - bottomZoneH) && rawY < availableH)
-                : (hasMultipleTabs && rawY >= (getHeight() - bottomZoneH) && rawX < availableW);
+        boolean inTabGestureZone = hasMultipleTabs
+                && rawY >= (canvasOriginY + availableH - bottomZoneH)
+                && rawY <= (canvasOriginY + availableH)
+                && rawX >= canvasOriginX
+                && rawX <= (canvasOriginX + availableW);
 
         if (inTabGestureZone) {
             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
@@ -2234,8 +2312,9 @@ public class MidiSurfaceView extends View {
                         animateBackToCurrentPage();
                     }
                 } else if (action == MotionEvent.ACTION_UP) {
-                    boolean hitBar = bottomTabBarRect.contains(rawX, rawY) ||
-                            (isPortrait ? (rawY >= availableH - dp(24) && rawY < availableH) : (rawY >= getHeight() - dp(24)));
+                    RectF expandedBar = new RectF(bottomTabBarRect);
+                    expandedBar.inset(-dp(14), -dp(14));
+                    boolean hitBar = expandedBar.contains(rawX, rawY);
                     if (hitBar) {
                         int numPages = layout.pages.size();
                         float totalDotsW = (numPages - 1) * dp(16);
@@ -2401,6 +2480,9 @@ public class MidiSurfaceView extends View {
                         handlePadButtonUp(state.control);
                     }
                 }
+                if (activeTouches.isEmpty()) {
+                    scheduleStateSave();
+                }
                 invalidate();
                 return true;
             }
@@ -2414,6 +2496,7 @@ public class MidiSurfaceView extends View {
                     }
                 }
                 activeTouches.clear();
+                scheduleStateSave();
                 invalidate();
                 return true;
             }
@@ -2509,6 +2592,7 @@ public class MidiSurfaceView extends View {
             ctrl.isMuted = (ctrl.value == offVal);
             syncFaderMuteFromButton(ctrl);
             animateButtonTrigger(ctrl, ctrl.value > offVal);
+            scheduleStateSave();
 
             if (networkManager != null) {
                 if (isCC) {
@@ -2557,6 +2641,7 @@ public class MidiSurfaceView extends View {
         ctrl.buttonValue = !ctrl.buttonValue;
         ctrl.isMuted = !ctrl.buttonValue;
         animateButtonTrigger(ctrl, ctrl.buttonValue);
+        scheduleStateSave();
         int note = ctrl.buttonMidiNumber;
         if (networkManager != null) {
             networkManager.sendNoteOn(ctrl.midiChannel, note, 127);

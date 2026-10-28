@@ -4,18 +4,18 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
-echo "Building TouchStage Editor (macOS Layout Editor)..."
+echo "Building TouchStage Editor (100% Pure Swift & Cocoa)..."
 
-clang -O2 -fobjc-arc \
+swiftc -O \
+    AirTheme.swift \
+    LayoutModel.swift \
+    AirTabBarView.swift \
+    InspectorView.swift \
+    EditorCanvasView.swift \
+    EditorWindowController.swift \
+    main.swift \
     -framework Cocoa \
     -framework AppKit \
-    -x objective-c \
-    LayoutModel.m \
-    AirTabBarView.m \
-    EditorCanvasView.m \
-    InspectorView.m \
-    EditorWindowController.m \
-    main.m \
     -o "TouchStage_Editor_bin"
 
 APP_DIR="TouchStage Editor.app"
@@ -31,4 +31,4 @@ if [ -f "AppIcon.icns" ]; then
     cp "AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 fi
 
-echo "TouchStage Editor.app built successfully at: $DIR/$APP_DIR"
+echo "TouchStage Editor.app (Pure Swift) built successfully at: $DIR/$APP_DIR"

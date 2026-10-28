@@ -109,7 +109,7 @@ public class MidiNetworkManager {
                     tcpOut.flush();
                 }
 
-                notifyState(true, "Conectado ao Mac (" + host.trim() + ")");
+                notifyState(true, "Connected to Mac (" + host.trim() + ")");
 
                 // Reader loop for layout synchronization & bidirectional MIDI from DAW
                 BufferedReader reader = new BufferedReader(new InputStreamReader(tcpSocket.getInputStream(), StandardCharsets.UTF_8));
@@ -151,7 +151,7 @@ public class MidiNetworkManager {
                 tcpSocket = null;
                 tcpOut = null;
 
-                notifyState(false, "Desconectado do Mac (Tentando reconectar...)");
+                notifyState(false, "Disconnected from Mac (Reconnecting...)");
 
                 // Auto-reconnect after 3 seconds if not manually cancelled
                 if (shouldAutoReconnect && host != null && !host.trim().isEmpty()) {

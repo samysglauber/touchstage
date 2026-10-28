@@ -7,6 +7,8 @@ Icon
 
 # Compiled macOS Applications and Binaries
 *.app/
+*_bin
+macos/**/*_bin
 macos/AirMIDI_bin
 macos/**/AirMIDI.app
 macos/**/TouchStage Bridge.app

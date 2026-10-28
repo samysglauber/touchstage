@@ -101,6 +101,7 @@ public class ControlModel {
         m.buttonMidiNumber = json.optInt("buttonMidiNumber", 60);
         m.buttonMode = json.optString("buttonMode", "toggle");
         m.buttonValue = json.optBoolean("buttonValue", false);
+        m.isMuted = json.optBoolean("isMuted", false);
         m.mode = json.optString("mode", "momentary");
         m.valueX = (float) json.optDouble("valueX", 64);
         m.valueY = (float) json.optDouble("valueY", 64);
@@ -142,6 +143,7 @@ public class ControlModel {
             obj.put("buttonMidiNumber", buttonMidiNumber);
             obj.put("buttonMode", buttonMode);
             obj.put("buttonValue", buttonValue);
+            obj.put("isMuted", isMuted);
             obj.put("mode", mode);
             obj.put("valueX", valueX);
             obj.put("valueY", valueY);

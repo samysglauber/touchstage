@@ -23,6 +23,7 @@ public class SettingsModal {
         void onDeviceSelected(String host, int port);
         void onPresetSelected(PresetManager.PresetItem presetItem);
         void onDeviceNameChanged(String newName);
+        void onSidebarPositionChanged(String landscapePos, String portraitPos);
     }
 
     private final Context context;
@@ -31,6 +32,8 @@ public class SettingsModal {
     private LinearLayout devicesContainer;
     private TextView searchingText;
     private String currentConnectedHost = "";
+    private String currentLandscapePos = "right";
+    private String currentPortraitPos = "bottom";
 
     public SettingsModal(Context context, SettingsListener listener) {
         this.context = context;
@@ -41,7 +44,19 @@ public class SettingsModal {
         this.currentConnectedHost = host != null ? host.trim() : "";
     }
 
+    public void setSidebarPositions(String landscapePos, String portraitPos) {
+        if (landscapePos != null) this.currentLandscapePos = landscapePos;
+        if (portraitPos != null) this.currentPortraitPos = portraitPos;
+    }
+
     public void show(List<NetworkDiscovery.DiscoveredDevice> initialDevices, String currentDeviceName) {
+        show(initialDevices, currentDeviceName, currentLandscapePos, currentPortraitPos);
+    }
+
+    public void show(List<NetworkDiscovery.DiscoveredDevice> initialDevices, String currentDeviceName, String landscapePos, String portraitPos) {
+        if (landscapePos != null) this.currentLandscapePos = landscapePos;
+        if (portraitPos != null) this.currentPortraitPos = portraitPos;
+
         dialog = new Dialog(context);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
 
@@ -166,7 +181,40 @@ public class SettingsModal {
         populatePresets(presetsContainer);
 
         // -------------------------------------------------------------
-        // SECTION 3: DEVICE IDENTITY
+        // SECTION 3: SIDEBAR POSITION
+        // -------------------------------------------------------------
+        content.addView(createSectionHeader("SIDEBAR POSITION"));
+
+        View landscapeRow = createSegmentedRow(
+            "Landscape Sidebar",
+            new String[]{ "Left", "Right" },
+            new String[]{ "left", "right" },
+            currentLandscapePos,
+            newVal -> {
+                currentLandscapePos = newVal;
+                if (listener != null) {
+                    listener.onSidebarPositionChanged(currentLandscapePos, currentPortraitPos);
+                }
+            }
+        );
+        content.addView(landscapeRow);
+
+        View portraitRow = createSegmentedRow(
+            "Portrait Control Bar",
+            new String[]{ "Top", "Bottom" },
+            new String[]{ "top", "bottom" },
+            currentPortraitPos,
+            newVal -> {
+                currentPortraitPos = newVal;
+                if (listener != null) {
+                    listener.onSidebarPositionChanged(currentLandscapePos, currentPortraitPos);
+                }
+            }
+        );
+        content.addView(portraitRow);
+
+        // -------------------------------------------------------------
+        // SECTION 4: DEVICE IDENTITY
         // -------------------------------------------------------------
         content.addView(createSectionHeader("DEVICE IDENTITY"));
 
@@ -326,7 +374,7 @@ public class SettingsModal {
         textCol.addView(text);
 
         TextView tagText = new TextView(context);
-        tagText.setText(item.isCustom ? "Salvo no celular" : "Padrão");
+        tagText.setText(item.isCustom ? "Saved on Device" : "Default");
         tagText.setTextColor(Color.parseColor("#8E8E93"));
         tagText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         textCol.addView(tagText);
@@ -335,7 +383,7 @@ public class SettingsModal {
 
         if (item.isCustom) {
             TextView delBtn = new TextView(context);
-            delBtn.setText("Excluir");
+            delBtn.setText("Delete");
             delBtn.setTextColor(Color.parseColor("#FF453A"));
             delBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
             delBtn.setPadding(dp(6), dp(4), dp(10), dp(4));
@@ -347,7 +395,7 @@ public class SettingsModal {
         }
 
         TextView arrow = new TextView(context);
-        arrow.setText("Carregar");
+        arrow.setText("Load");
         arrow.setTextColor(Color.parseColor("#0A84FF"));
         arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         arrow.setTypeface(Typeface.DEFAULT_BOLD);
@@ -362,6 +410,94 @@ public class SettingsModal {
         });
 
         return row;
+    }
+
+    private interface OptionSelectListener {
+        void onSelected(String value);
+    }
+
+    private View createSegmentedRow(String label, String[] titles, String[] values, String selectedValue, OptionSelectListener onSelect) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        row.setBackground(createCellBackground());
+
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        rowParams.bottomMargin = dp(8);
+        row.setLayoutParams(rowParams);
+
+        TextView labelView = new TextView(context);
+        labelView.setText(label);
+        labelView.setTextColor(Color.WHITE);
+        labelView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        labelView.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(labelView);
+
+        // Segmented bar
+        LinearLayout segContainer = new LinearLayout(context);
+        segContainer.setOrientation(LinearLayout.HORIZONTAL);
+        segContainer.setPadding(dp(3), dp(3), dp(3), dp(3));
+        GradientDrawable segBg = new GradientDrawable();
+        segBg.setShape(GradientDrawable.RECTANGLE);
+        segBg.setCornerRadius(dp(8));
+        segBg.setColor(Color.parseColor("#1C1C1E"));
+        segContainer.setBackground(segBg);
+
+        LinearLayout.LayoutParams segParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        segParams.topMargin = dp(8);
+        segContainer.setLayoutParams(segParams);
+
+        final TextView[] segmentViews = new TextView[titles.length];
+        final String[] curValHolder = new String[]{ selectedValue };
+
+        for (int i = 0; i < titles.length; i++) {
+            final String val = values[i];
+            TextView seg = new TextView(context);
+            seg.setText(titles[i]);
+            seg.setGravity(Gravity.CENTER);
+            seg.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+            seg.setPadding(dp(8), dp(8), dp(8), dp(8));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+            seg.setLayoutParams(p);
+
+            segmentViews[i] = seg;
+            updateSegmentView(seg, val.equalsIgnoreCase(curValHolder[0]));
+
+            seg.setOnClickListener(v -> {
+                curValHolder[0] = val;
+                for (int j = 0; j < titles.length; j++) {
+                    updateSegmentView(segmentViews[j], values[j].equalsIgnoreCase(curValHolder[0]));
+                }
+                if (onSelect != null) {
+                    onSelect.onSelected(val);
+                }
+            });
+
+            segContainer.addView(seg);
+        }
+
+        row.addView(segContainer);
+        return row;
+    }
+
+    private void updateSegmentView(TextView seg, boolean isSelected) {
+        if (isSelected) {
+            GradientDrawable d = new GradientDrawable();
+            d.setShape(GradientDrawable.RECTANGLE);
+            d.setCornerRadius(dp(6));
+            d.setColor(Color.parseColor("#0A84FF")); // Apple blue
+            seg.setBackground(d);
+            seg.setTextColor(Color.WHITE);
+            seg.setTypeface(Typeface.DEFAULT_BOLD);
+        } else {
+            seg.setBackground(null);
+            seg.setTextColor(Color.parseColor("#8E8E93"));
+            seg.setTypeface(Typeface.DEFAULT);
+        }
     }
 
     private TextView createSectionHeader(String text) {
