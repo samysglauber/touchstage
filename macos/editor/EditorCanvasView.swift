@@ -170,8 +170,9 @@ public class EditorCanvasView: NSView {
         ctx.translateBy(x: devX, y: devY)
         ctx.scaleBy(x: zoom, y: zoom)
 
-        // Subtle 20px Grid Dots
-        NSColor(calibratedWhite: 1.0, alpha: 0.035).setFill()
+        // 20px Grid Dots
+        let gridAlpha: CGFloat = snapToGrid ? 0.20 : 0.10
+        NSColor(calibratedWhite: 1.0, alpha: gridAlpha).setFill()
         var gx: CGFloat = 20.0
         while gx < devW {
             var gy: CGFloat = 20.0
