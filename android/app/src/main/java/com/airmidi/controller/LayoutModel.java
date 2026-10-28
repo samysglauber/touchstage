@@ -164,6 +164,38 @@ public class LayoutModel {
         }
     }
 
+    public static final String ACTIVE_STATE_FILE = "active_layout_state.json";
+
+    public static boolean saveLayoutState(Context ctx, LayoutModel layout) {
+        if (ctx == null || layout == null) return false;
+        try {
+            java.io.File dir = ctx.getFilesDir();
+            java.io.File tempFile = new java.io.File(dir, ACTIVE_STATE_FILE + ".tmp");
+            java.io.File targetFile = new java.io.File(dir, ACTIVE_STATE_FILE);
+            String json = layout.toJsonString();
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile);
+            fos.write(json.getBytes(StandardCharsets.UTF_8));
+            fos.flush();
+            fos.close();
+            return tempFile.renameTo(targetFile);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public static LayoutModel loadActiveLayoutState(Context ctx) {
+        if (ctx == null) return null;
+        try {
+            java.io.File file = new java.io.File(ctx.getFilesDir(), ACTIVE_STATE_FILE);
+            if (!file.exists()) return null;
+            return loadFromFile(file);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     public String toJsonString() {
         try {
             JSONObject root = new JSONObject();

@@ -34,6 +34,8 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
     private static final String PREF_MAC_IP = "pref_mac_ip";
     private static final String PREF_PORT = "pref_port";
     private static final String PREF_DEVICE_NAME = "pref_device_name";
+    public static final String PREF_SIDEBAR_LANDSCAPE = "pref_sidebar_landscape";
+    public static final String PREF_SIDEBAR_PORTRAIT = "pref_sidebar_portrait";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,15 +73,21 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         String savedHost = prefs.getString(PREF_MAC_IP, "");
         int savedPort = prefs.getInt(PREF_PORT, 9000);
         String deviceName = prefs.getString(PREF_DEVICE_NAME, Build.MODEL != null ? Build.MODEL : "Phone");
+        String landscapePos = prefs.getString(PREF_SIDEBAR_LANDSCAPE, "right");
+        String portraitPos = prefs.getString(PREF_SIDEBAR_PORTRAIT, "bottom");
 
         // 1. Midi Surface View (Full screen, zero UI clutter, minimalist corner indicator)
         surfaceView = new MidiSurfaceView(this);
+        surfaceView.setSidebarPositions(landscapePos, portraitPos);
         setContentView(surfaceView);
 
-        // 2. Load bundled default layout
-        LayoutModel defaultLayout = LayoutModel.loadFromAsset(this, "default_layout.json");
-        if (defaultLayout != null) {
-            applyLayout(defaultLayout);
+        // 2. Load active layout state (or fallback to bundled default layout)
+        LayoutModel activeLayout = LayoutModel.loadActiveLayoutState(this);
+        if (activeLayout == null) {
+            activeLayout = LayoutModel.loadFromAsset(this, "default_layout.json");
+        }
+        if (activeLayout != null) {
+            applyLayout(activeLayout);
         }
 
         // 3. Settings Modal
@@ -109,8 +117,18 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
                     networkManager.setDeviceName(newName);
                 }
             }
+
+            @Override
+            public void onSidebarPositionChanged(String newLandscapePos, String newPortraitPos) {
+                prefs.edit()
+                    .putString(PREF_SIDEBAR_LANDSCAPE, newLandscapePos)
+                    .putString(PREF_SIDEBAR_PORTRAIT, newPortraitPos)
+                    .apply();
+                surfaceView.setSidebarPositions(newLandscapePos, newPortraitPos);
+            }
         });
         settingsModal.setConnectedHost(savedHost);
+        settingsModal.setSidebarPositions(landscapePos, portraitPos);
 
         // Corner gear button click -> open settings
         surfaceView.setOnSettingsClickedListener(this::openSettings);
@@ -139,7 +157,9 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
     private void openSettings() {
         String currentName = prefs.getString(PREF_DEVICE_NAME, Build.MODEL != null ? Build.MODEL : "Phone");
-        settingsModal.show(discovery.getDevices(), currentName);
+        String lPos = prefs.getString(PREF_SIDEBAR_LANDSCAPE, "right");
+        String pPos = prefs.getString(PREF_SIDEBAR_PORTRAIT, "bottom");
+        settingsModal.show(discovery.getDevices(), currentName, lPos, pPos);
     }
 
     @Override
@@ -289,6 +309,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         setRequestedOrientation(isPortrait ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT : ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         if (surfaceView != null) {
             surfaceView.setLayout(layout);
+            surfaceView.saveStateNow();
         }
     }
 
@@ -353,6 +374,22 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
             );
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (surfaceView != null) {
+            surfaceView.saveStateNow();
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (surfaceView != null) {
+            surfaceView.saveStateNow();
         }
     }
 
