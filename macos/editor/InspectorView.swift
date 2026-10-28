@@ -40,6 +40,10 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     // Knob & Fader specific options
     private var knobStyleLabel: NSTextField!
     private var knobStyleSegment: NSSegmentedControl!
+    private var knobValueDisplayLabel: NSTextField!
+    private var knobValueDisplaySegment: NSSegmentedControl!
+    private var knobValuePosLabel: NSTextField!
+    private var knobValuePosSegment: NSSegmentedControl!
     private var faderOrientationLabel: NSTextField!
     private var faderOrientationSegment: NSSegmentedControl!
     private var faderStyleLabel: NSTextField!
@@ -243,6 +247,24 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         knobStyleSegment.segmentStyle = .texturedRounded
         knobStyleSegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
         contentContainer.addSubview(knobStyleSegment)
+
+        // Knob Value Display Segment
+        knobValueDisplayLabel = createLabel("Value Display", frame: NSRect(x: pad, y: 146, width: w, height: 14), bold: false)
+        contentContainer.addSubview(knobValueDisplayLabel)
+        knobValueDisplaySegment = NSSegmentedControl(labels: ["Off", "0-127", "%"], trackingMode: .selectOne, target: self, action: #selector(onKnobValueDisplayChanged(_:)))
+        knobValueDisplaySegment.frame = NSRect(x: pad, y: 164, width: w, height: 24)
+        knobValueDisplaySegment.segmentStyle = .texturedRounded
+        knobValueDisplaySegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        contentContainer.addSubview(knobValueDisplaySegment)
+
+        // Knob Value Position Segment
+        knobValuePosLabel = createLabel("Display Position", frame: NSRect(x: pad, y: 188, width: w, height: 14), bold: false)
+        contentContainer.addSubview(knobValuePosLabel)
+        knobValuePosSegment = NSSegmentedControl(labels: ["Center", "Bottom"], trackingMode: .selectOne, target: self, action: #selector(onKnobValuePosChanged(_:)))
+        knobValuePosSegment.frame = NSRect(x: pad, y: 206, width: w, height: 24)
+        knobValuePosSegment.segmentStyle = .texturedRounded
+        knobValuePosSegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        contentContainer.addSubview(knobValuePosSegment)
 
         // Single Color Picker
         colorLabel = createLabel("Control Color", frame: NSRect(x: pad, y: 178, width: w, height: 14), bold: false)
@@ -466,6 +488,20 @@ public class InspectorView: NSView, NSTextFieldDelegate {
             knobStyleSegment.selectedSegment = 0
         }
 
+        if currentControl.valueDisplay == "scale" {
+            knobValueDisplaySegment.selectedSegment = 1
+        } else if currentControl.valueDisplay == "percent" {
+            knobValueDisplaySegment.selectedSegment = 2
+        } else {
+            knobValueDisplaySegment.selectedSegment = 0
+        }
+
+        if currentControl.valuePosition == "bottom" {
+            knobValuePosSegment.selectedSegment = 1
+        } else {
+            knobValuePosSegment.selectedSegment = 0
+        }
+
         // MIDI Range
         minValField.integerValue = currentControl.minValue
         maxValField.integerValue = currentControl.maxValue
@@ -567,10 +603,31 @@ public class InspectorView: NSView, NSTextFieldDelegate {
             knobStyleLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
             y += 18.0
             knobStyleSegment.frame = NSRect(x: pad, y: y, width: w, height: 24)
-            y += 32.0
+            y += 30.0
+
+            knobValueDisplayLabel.isHidden = false
+            knobValueDisplaySegment.isHidden = false
+            knobValueDisplayLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
+            y += 18.0
+            knobValueDisplaySegment.frame = NSRect(x: pad, y: y, width: w, height: 24)
+            y += 30.0
+
+            let showPos = (ctrl.valueDisplay != "none")
+            knobValuePosLabel.isHidden = !showPos
+            knobValuePosSegment.isHidden = !showPos
+            if showPos {
+                knobValuePosLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
+                y += 18.0
+                knobValuePosSegment.frame = NSRect(x: pad, y: y, width: w, height: 24)
+                y += 30.0
+            }
         } else {
             knobStyleLabel.isHidden = true
             knobStyleSegment.isHidden = true
+            knobValueDisplayLabel.isHidden = true
+            knobValueDisplaySegment.isHidden = true
+            knobValuePosLabel.isHidden = true
+            knobValuePosSegment.isHidden = true
         }
 
         // 3. Controls specific to Label
@@ -765,6 +822,24 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         if idx == 1 { ctrl.knobStyle = "inverted" }
         else if idx == 2 { ctrl.knobStyle = "centered" }
         else { ctrl.knobStyle = "standard" }
+        delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
+    @objc private func onKnobValueDisplayChanged(_ sender: Any?) {
+        guard !isUpdatingUI, let ctrl = currentControl else { return }
+        notifyWillChange()
+        let idx = knobValueDisplaySegment.selectedSegment
+        if idx == 1 { ctrl.valueDisplay = "scale" }
+        else if idx == 2 { ctrl.valueDisplay = "percent" }
+        else { ctrl.valueDisplay = "none" }
+        layoutFieldsForControl(ctrl)
+        delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
+    @objc private func onKnobValuePosChanged(_ sender: Any?) {
+        guard !isUpdatingUI, let ctrl = currentControl else { return }
+        notifyWillChange()
+        ctrl.valuePosition = (knobValuePosSegment.selectedSegment == 1) ? "bottom" : "center"
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 

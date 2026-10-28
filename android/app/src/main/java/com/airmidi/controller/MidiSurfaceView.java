@@ -1812,14 +1812,86 @@ public class MidiSurfaceView extends View {
         canvas.drawCircle(cx, cy, dialFaceR * 0.50f, paintStroke);
 
         // 4. Indicator Needle (Glowing Neon Pointer)
+        String valDisplay = (ctrl.valueDisplay != null) ? ctrl.valueDisplay.toLowerCase() : "none";
+        String valPos = (ctrl.valuePosition != null) ? ctrl.valuePosition.toLowerCase() : "center";
+        boolean hasValueDisplay = !"none".equals(valDisplay);
+
         double rad = Math.toRadians(needleAngle);
-        float pStartX = cx + (float)Math.cos(rad) * (dialFaceR * 0.15f);
-        float pStartY = cy + (float)Math.sin(rad) * (dialFaceR * 0.15f);
+        float needleStartR = (hasValueDisplay && "center".equals(valPos)) ? (dialFaceR * 0.46f + dp(2.0f)) : (dialFaceR * 0.15f);
+        float pStartX = cx + (float)Math.cos(rad) * needleStartR;
+        float pStartY = cy + (float)Math.sin(rad) * needleStartR;
         float pEndX = cx + (float)Math.cos(rad) * (dialFaceR * 0.85f);
         float pEndY = cy + (float)Math.sin(rad) * (dialFaceR * 0.85f);
         drawGlowingLine(canvas, pStartX, pStartY, pEndX, pEndY, ctrl.accentColor, 3.5f);
 
-        // 5. Draw Pill Label (Matching "SYNTH FILTER" capsule at bottom right of screenshot)
+        // 5. Knob Value Readout (Center Cap or Bottom Badge)
+        if (hasValueDisplay) {
+            String valStr;
+            if ("percent".equals(valDisplay)) {
+                int p = Math.round(pct * 100.0f);
+                valStr = p + "%";
+            } else {
+                float vRange = (ctrl.maxValue > ctrl.minValue) ? (ctrl.maxValue - ctrl.minValue) : 127.0f;
+                int actualVal = Math.round(ctrl.minValue + (pct * vRange));
+                valStr = String.valueOf(actualVal);
+            }
+
+            paintText.setLetterSpacing(0.0f);
+            paintText.setTextAlign(Paint.Align.CENTER);
+
+            if ("bottom".equals(valPos)) {
+                // Bottom badge pill
+                float badgeW = Math.max(dp(38.0f), dialFaceR * 1.0f);
+                float badgeH = dp(17.0f);
+                float badgeY;
+                if (hasLabel && pillRect != null) {
+                    if (isTop) {
+                        badgeY = ctrl.y + ctrl.height - badgeH - dp(2.0f);
+                    } else {
+                        badgeY = pillRect.top - badgeH - dp(3.0f);
+                    }
+                } else {
+                    badgeY = ctrl.y + ctrl.height - badgeH - dp(2.0f);
+                }
+                RectF badgeRect = new RectF(cx - badgeW / 2.0f, badgeY, cx + badgeW / 2.0f, badgeY + badgeH);
+
+                paintFill.setShader(null);
+                paintFill.setColor(Color.parseColor("#0C0D12"));
+                canvas.drawRoundRect(badgeRect, dp(4.0f), dp(4.0f), paintFill);
+
+                paintStroke.setColor(adjustAlpha(ctrl.accentColor, 0.45f));
+                paintStroke.setStrokeWidth(dp(1.0f));
+                canvas.drawRoundRect(badgeRect, dp(4.0f), dp(4.0f), paintStroke);
+
+                paintText.setColor(ctrl.accentColor);
+                paintText.setTextSize(dp(10.0f));
+                paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+                Paint.FontMetrics fm = paintText.getFontMetrics();
+                float textBaseY = badgeRect.centerY() - (fm.ascent + fm.descent) / 2.0f;
+                canvas.drawText(valStr, badgeRect.centerX(), textBaseY, paintText);
+            } else {
+                // Center circular cap readout
+                float centerR = dialFaceR * 0.46f;
+
+                paintFill.setShader(null);
+                paintFill.setColor(Color.parseColor("#12141A"));
+                canvas.drawCircle(cx, cy, centerR, paintFill);
+
+                paintStroke.setColor(adjustAlpha(ctrl.accentColor, 0.55f));
+                paintStroke.setStrokeWidth(dp(1.0f));
+                canvas.drawCircle(cx, cy, centerR, paintStroke);
+
+                paintText.setColor(Color.WHITE);
+                paintText.setTextSize(Math.max(dp(9.0f), centerR * 0.72f));
+                paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+                Paint.FontMetrics fm = paintText.getFontMetrics();
+                float textBaseY = cy - (fm.ascent + fm.descent) / 2.0f;
+                canvas.drawText(valStr, cx, textBaseY, paintText);
+            }
+            paintText.setTypeface(Typeface.DEFAULT);
+        }
+
+        // 6. Draw Pill Label (Matching "SYNTH FILTER" capsule)
         if (hasLabel && pillRect != null) {
             paintFill.setShader(null);
             paintFill.setColor(Color.parseColor("#0A0B0E"));

@@ -26,6 +26,8 @@ public class ControlModel {
     public String labelPosition = "top"; // "top", "bottom"
     public String orientation = "vertical"; // "vertical", "horizontal" (for faders)
     public String knobStyle = "standard"; // "standard", "inverted", "centered" (for knobs)
+    public String valueDisplay = "none"; // "none", "scale", "percent"
+    public String valuePosition = "center"; // "center", "bottom"
     public String faderStyle = "standard"; // "standard", "inverted", "centered" (for faders)
     public float fontSize = 0; // custom font size (0 = auto)
     public String shape = "square"; // "square", "circle"
@@ -90,6 +92,8 @@ public class ControlModel {
         m.labelPosition = json.optString("labelPosition", "knob".equals(m.type) ? "bottom" : "top");
         m.orientation = json.optString("orientation", "vertical");
         m.knobStyle = json.optString("knobStyle", "standard");
+        m.valueDisplay = json.optString("valueDisplay", "none");
+        m.valuePosition = json.optString("valuePosition", "center");
         m.faderStyle = json.optString("faderStyle", "standard");
         m.fontSize = (float) json.optDouble("fontSize", 0);
         m.shape = json.optString("shape", "square");
@@ -130,6 +134,8 @@ public class ControlModel {
             obj.put("labelPosition", labelPosition);
             obj.put("orientation", orientation);
             obj.put("knobStyle", knobStyle);
+            if (!"none".equals(valueDisplay)) obj.put("valueDisplay", valueDisplay);
+            if (!"center".equals(valuePosition)) obj.put("valuePosition", valuePosition);
             obj.put("faderStyle", faderStyle);
             if (fontSize > 0) obj.put("fontSize", fontSize);
             if (hasVuMeter) {

@@ -175,7 +175,7 @@ public class TouchStageRecentRowButton: NSButton {
 }
 
 public class EditorWindowController: NSWindowController, EditorCanvasDelegate, InspectorDelegate, AirTabBarDelegate {
-    public var layout: LayoutModel = LayoutModel.referencePreset()
+    public var layout: LayoutModel = LayoutModel.blankLayout()
 
     private var canvasView: EditorCanvasView!
     private var inspectorView: InspectorView!
@@ -465,6 +465,13 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
             }
         }
 
+        if presetsPopup.item(withTitle: layout.name) == nil && !layout.name.isEmpty {
+            let curItem = NSMenuItem(title: layout.name, action: nil, keyEquivalent: "")
+            curItem.representedObject = "current_unsaved"
+            curItem.image = AirSymbol("doc.badge.plus", 12.0)
+            presetsPopup.menu?.insertItem(curItem, at: 0)
+        }
+
         if !layout.name.isEmpty {
             presetsPopup.selectItem(withTitle: layout.name)
         }
@@ -520,7 +527,9 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         guard let item = presetsPopup.selectedItem else { return }
 
         if let rep = item.representedObject as? String {
-            if rep == "builtin_stage6" {
+            if rep == "current_unsaved" {
+                return
+            } else if rep == "builtin_stage6" {
                 layout = LayoutModel.referencePreset()
                 recordRecentProject(named: "Stage 6-Track", path: "builtin_stage6", orientation: "landscape")
             } else {
@@ -537,15 +546,16 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         tabBarView.layout = layout
         tabBarView.reloadTabs()
         inspectorView.bindControl(nil)
+        reloadPresetsMenu()
     }
 
     @objc private func onDeletePresetClicked(_ sender: Any?) {
         guard let item = presetsPopup.selectedItem, let window = self.window else { return }
 
-        if let rep = item.representedObject as? String, rep.hasPrefix("builtin_") {
+        if let rep = item.representedObject as? String, rep.hasPrefix("builtin_") || rep == "current_unsaved" {
             let alert = NSAlert()
-            alert.messageText = "Cannot Delete Factory Preset"
-            alert.informativeText = "\"\(item.title)\" is a built-in factory preset and cannot be removed."
+            alert.messageText = "Cannot Delete Preset"
+            alert.informativeText = "\"\(item.title)\" cannot be removed from presets."
             alert.icon = AirSymbol("lock.shield", 36.0)
             alert.addButton(withTitle: "OK")
             alert.beginSheetModal(for: window, completionHandler: nil)

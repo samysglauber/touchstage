@@ -673,9 +673,19 @@ public class EditorCanvasView: NSView {
         groovePath.stroke()
 
         // 4. Indicator Needle
+        let showValue = (ctrl.valueDisplay != "none")
+        var valueString = ""
+        if ctrl.valueDisplay == "percent" {
+            valueString = "\(Int(round(pct * 100.0)))%"
+        } else if ctrl.valueDisplay == "scale" {
+            valueString = "\(Int(round(ctrl.value)))"
+        }
+        let isCenterVal = (showValue && ctrl.valuePosition == "center")
+
+        let needleStartR = isCenterVal ? (dialFaceR * 0.50) : (dialFaceR * 0.20)
         let rad = needleAngle * .pi / 180.0
-        let pStartX = cx + cos(rad) * (dialFaceR * 0.20)
-        let pStartY = cy + sin(rad) * (dialFaceR * 0.20)
+        let pStartX = cx + cos(rad) * needleStartR
+        let pStartY = cy + sin(rad) * needleStartR
         let pEndX = cx + cos(rad) * (dialFaceR * 0.85)
         let pEndY = cy + sin(rad) * (dialFaceR * 0.85)
 
@@ -694,6 +704,58 @@ public class EditorCanvasView: NSView {
         NSColor.white.setStroke()
         needle.lineWidth = 1.5
         needle.stroke()
+
+        // 4b. Value Readout (Center Cap or Bottom Badge)
+        if showValue && !valueString.isEmpty {
+            let pStyle = NSMutableParagraphStyle()
+            pStyle.alignment = .center
+
+            if isCenterVal {
+                let centerR = dialFaceR * 0.46
+                let centerRect = NSRect(x: cx - centerR, y: cy - centerR, width: centerR * 2.0, height: centerR * 2.0)
+                let centerCap = NSBezierPath(ovalIn: centerRect)
+                NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.10, alpha: 0.96).setFill()
+                centerCap.fill()
+                NSColor(calibratedWhite: 0.28, alpha: 0.9).setStroke()
+                centerCap.lineWidth = 1.0
+                centerCap.stroke()
+
+                let fontSize = max(9.0, min(13.0, centerR * 0.74))
+                let valAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold),
+                    .foregroundColor: NSColor.white,
+                    .paragraphStyle: pStyle
+                ]
+                let textSize = (valueString as NSString).size(withAttributes: valAttrs)
+                let textRect = NSRect(x: cx - centerR, y: cy - (textSize.height / 2.0), width: centerR * 2.0, height: textSize.height)
+                (valueString as NSString).draw(in: textRect, withAttributes: valAttrs)
+            } else {
+                let badgeW: CGFloat = max(42.0, CGFloat(valueString.count) * 8.5 + 14.0)
+                let badgeH: CGFloat = 16.0
+                let badgeY: CGFloat
+                if hasLabel && !isLabelTop {
+                    badgeY = pillRect.origin.y - badgeH - 3.0
+                } else {
+                    badgeY = cy + radius + 3.0
+                }
+                let badgeRect = NSRect(x: cx - badgeW / 2.0, y: badgeY, width: badgeW, height: badgeH)
+                let badgePath = NSBezierPath(roundedRect: badgeRect, xRadius: 4.0, yRadius: 4.0)
+                NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.11, alpha: 0.92).setFill()
+                badgePath.fill()
+                NSColor(calibratedWhite: 0.24, alpha: 0.8).setStroke()
+                badgePath.lineWidth = 0.8
+                badgePath.stroke()
+
+                let valAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 10.0, weight: .semibold),
+                    .foregroundColor: ctrl.accentColor,
+                    .paragraphStyle: pStyle
+                ]
+                let textSize = (valueString as NSString).size(withAttributes: valAttrs)
+                let textRect = NSRect(x: badgeRect.origin.x, y: badgeRect.midY - (textSize.height / 2.0), width: badgeW, height: textSize.height)
+                (valueString as NSString).draw(in: textRect, withAttributes: valAttrs)
+            }
+        }
 
         // 5. Draw Pill Label
         if hasLabel {

@@ -38,6 +38,8 @@ public func HexFromColor(_ color: NSColor?) -> String {
     public var labelPosition: String = "top" // "top", "bottom"
     public var orientation: String = "vertical" // "vertical", "horizontal"
     public var knobStyle: String = "standard" // "standard", "inverted", "centered"
+    public var valueDisplay: String = "none" // "none", "scale", "percent"
+    public var valuePosition: String = "center" // "center", "bottom"
     public var faderStyle: String = "standard" // "standard", "inverted", "centered"
     public var fontSize: CGFloat = 0.0
     public var shape: String = "square" // "square", "circle"
@@ -76,6 +78,8 @@ public func HexFromColor(_ color: NSColor?) -> String {
         copy.labelPosition = self.labelPosition
         copy.orientation = self.orientation
         copy.knobStyle = self.knobStyle
+        copy.valueDisplay = self.valueDisplay
+        copy.valuePosition = self.valuePosition
         copy.faderStyle = self.faderStyle
         copy.fontSize = self.fontSize
         copy.shape = self.shape
@@ -118,6 +122,8 @@ public func HexFromColor(_ color: NSColor?) -> String {
         m.labelPosition = (dict["labelPosition"] as? String) ?? (m.type == "knob" ? "bottom" : "top")
         m.orientation = (dict["orientation"] as? String) ?? "vertical"
         m.knobStyle = (dict["knobStyle"] as? String) ?? "standard"
+        m.valueDisplay = (dict["valueDisplay"] as? String) ?? "none"
+        m.valuePosition = (dict["valuePosition"] as? String) ?? "center"
         m.faderStyle = (dict["faderStyle"] as? String) ?? "standard"
         m.fontSize = CGFloat((dict["fontSize"] as? NSNumber)?.doubleValue ?? 0.0)
         m.shape = (dict["shape"] as? String) ?? "square"
@@ -154,6 +160,8 @@ public func HexFromColor(_ color: NSColor?) -> String {
             "labelPosition": labelPosition,
             "orientation": orientation,
             "knobStyle": knobStyle,
+            "valueDisplay": valueDisplay,
+            "valuePosition": valuePosition,
             "faderStyle": faderStyle
         ]
 
@@ -341,6 +349,22 @@ public func HexFromColor(_ color: NSColor?) -> String {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: root, options: []) else { return "{}" }
         return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    // Blank Project (Clean Empty Canvas)
+    public static func blankLayout(name: String = "Untitled Project", orientation: String = "landscape") -> LayoutModel {
+        let l = LayoutModel()
+        l.name = name
+        let isPortrait = (orientation == "portrait")
+        l.canvasWidth = isPortrait ? 460.0 : 920.0
+        l.canvasHeight = isPortrait ? 920.0 : 460.0
+        l.orientation = orientation
+        l.pages.removeAll()
+        let page = LayoutPageModel.page(withName: "Screen 1")
+        l.pages.append(page)
+        l.activePageIndex = 0
+        l.controls = page.controls
+        return l
     }
 
     // Reference Preset: Stage 6-Track (Mixer Rig + Lead & FX)
