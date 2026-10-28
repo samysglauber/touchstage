@@ -187,8 +187,8 @@ public class SettingsModal {
 
         View landscapeRow = createSegmentedRow(
             "Landscape Sidebar",
-            new String[]{ "Right (Default)", "Left" },
-            new String[]{ "right", "left" },
+            new String[]{ "Left", "Right" },
+            new String[]{ "left", "right" },
             currentLandscapePos,
             newVal -> {
                 currentLandscapePos = newVal;
@@ -201,8 +201,8 @@ public class SettingsModal {
 
         View portraitRow = createSegmentedRow(
             "Portrait Control Bar",
-            new String[]{ "Bottom (Default)", "Top" },
-            new String[]{ "bottom", "top" },
+            new String[]{ "Top", "Bottom" },
+            new String[]{ "top", "bottom" },
             currentPortraitPos,
             newVal -> {
                 currentPortraitPos = newVal;
