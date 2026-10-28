@@ -4,19 +4,30 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
-echo "Building TouchStage Editor (macOS Layout Editor)..."
+echo "Building TouchStage Editor (Swift & Cocoa)..."
 
-clang -O2 -fobjc-arc \
-    -framework Cocoa \
-    -framework AppKit \
-    -x objective-c \
+# 1. Compile Objective-C core components to object files
+clang -c -O2 -fobjc-arc \
     LayoutModel.m \
     AirTabBarView.m \
     EditorCanvasView.m \
     InspectorView.m \
-    EditorWindowController.m \
-    main.m \
+    EditorWindowController.m
+
+# 2. Compile Swift entry point & link
+swiftc -O \
+    -import-objc-header Editor-Bridging-Header.h \
+    main.swift \
+    LayoutModel.o \
+    AirTabBarView.o \
+    EditorCanvasView.o \
+    InspectorView.o \
+    EditorWindowController.o \
+    -framework Cocoa \
+    -framework AppKit \
     -o "TouchStage_Editor_bin"
+
+rm -f *.o
 
 APP_DIR="TouchStage Editor.app"
 rm -rf "$APP_DIR"
@@ -31,4 +42,4 @@ if [ -f "AppIcon.icns" ]; then
     cp "AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 fi
 
-echo "TouchStage Editor.app built successfully at: $DIR/$APP_DIR"
+echo "TouchStage Editor.app (Swift) built successfully at: $DIR/$APP_DIR"
