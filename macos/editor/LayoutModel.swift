@@ -1,0 +1,640 @@
+import Cocoa
+
+public func ColorFromHex(_ hexStr: String?) -> NSColor {
+    guard let hex = hexStr, !hex.isEmpty else { return NSColor.cyan }
+    let clean = hex.replacingOccurrences(of: "#", with: "")
+    guard let rgb = UInt32(clean, radix: 16) else { return NSColor.cyan }
+    let r = CGFloat((rgb >> 16) & 0xFF) / 255.0
+    let g = CGFloat((rgb >> 8) & 0xFF) / 255.0
+    let b = CGFloat(rgb & 0xFF) / 255.0
+    return NSColor(calibratedRed: r, green: g, blue: b, alpha: 1.0)
+}
+
+public func HexFromColor(_ color: NSColor?) -> String {
+    guard let color = color else { return "#00e5ff" }
+    let rgb = color.usingColorSpace(.sRGB) ?? color
+    let r = Int(round(rgb.redComponent * 255.0))
+    let g = Int(round(rgb.greenComponent * 255.0))
+    let b = Int(round(rgb.blueComponent * 255.0))
+    return String(format: "#%02x%02x%02x", r, g, b)
+}
+
+@objc public class MidiControlModel: NSObject, NSCopying {
+    public var controlId: String = ""
+    public var type: String = "fader" // "fader", "knob", "button", "xypad", "label"
+    public var label: String = "CONTROL"
+    public var frame: NSRect = NSRect(x: 0, y: 0, width: 80, height: 200)
+    public var color: NSColor = NSColor.cyan
+    public var accentColor: NSColor = NSColor.cyan
+    public var midiChannel: Int = 1 // 1 - 16
+    public var midiType: String = "cc" // "cc", "note", "pitchbend"
+    public var midiNumber: Int = 7 // 0 - 127
+    public var minValue: Int = 0
+    public var maxValue: Int = 127
+    public var value: Double = 0.0
+
+    // Options
+    public var hasLabel: Bool = false
+    public var labelPosition: String = "top" // "top", "bottom"
+    public var orientation: String = "vertical" // "vertical", "horizontal"
+    public var knobStyle: String = "standard" // "standard", "inverted", "centered"
+    public var faderStyle: String = "standard" // "standard", "inverted", "centered"
+    public var fontSize: CGFloat = 0.0
+    public var shape: String = "square" // "square", "circle"
+    public var hasBackground: Bool = false
+    public var hasVuMeter: Bool = false
+    public var vuMidiChannel: Int = 1
+    public var vuMidiNumber: Int = 7
+    public var vuLevel: CGFloat = 0.0
+    public var peakLevel: CGFloat = 0.0
+    public var hasBottomButton: Bool = false
+    public var buttonMidiNumber: Int = 60
+    public var buttonMode: String = "toggle"
+    public var buttonValue: Bool = false
+    public var mode: String = "momentary" // "momentary", "toggle"
+
+    public override init() {
+        super.init()
+        self.controlId = String(format: "ctrl_%u", arc4random() % 10000)
+    }
+
+    public func copy(with zone: NSZone? = nil) -> Any {
+        let copy = MidiControlModel()
+        copy.controlId = self.controlId
+        copy.type = self.type
+        copy.label = self.label
+        copy.frame = self.frame
+        copy.color = self.color
+        copy.accentColor = self.accentColor
+        copy.midiChannel = self.midiChannel
+        copy.midiType = self.midiType
+        copy.midiNumber = self.midiNumber
+        copy.minValue = self.minValue
+        copy.maxValue = self.maxValue
+        copy.value = self.value
+        copy.hasLabel = self.hasLabel
+        copy.labelPosition = self.labelPosition
+        copy.orientation = self.orientation
+        copy.knobStyle = self.knobStyle
+        copy.faderStyle = self.faderStyle
+        copy.fontSize = self.fontSize
+        copy.shape = self.shape
+        copy.hasBackground = self.hasBackground
+        copy.hasVuMeter = self.hasVuMeter
+        copy.vuMidiChannel = self.vuMidiChannel
+        copy.vuMidiNumber = self.vuMidiNumber
+        copy.vuLevel = self.vuLevel
+        copy.peakLevel = self.peakLevel
+        copy.hasBottomButton = self.hasBottomButton
+        copy.buttonMidiNumber = self.buttonMidiNumber
+        copy.buttonMode = self.buttonMode
+        copy.buttonValue = self.buttonValue
+        copy.mode = self.mode
+        return copy
+    }
+
+    public static func control(with dict: [String: Any]) -> MidiControlModel {
+        let m = MidiControlModel()
+        m.controlId = (dict["id"] as? String) ?? String(format: "ctrl_%u", arc4random() % 10000)
+        m.type = (dict["type"] as? String) ?? "fader"
+        m.label = (dict["label"] as? String) ?? "CONTROL"
+
+        let x = (dict["x"] as? NSNumber)?.doubleValue ?? 0
+        let y = (dict["y"] as? NSNumber)?.doubleValue ?? 0
+        let w = (dict["width"] as? NSNumber)?.doubleValue ?? 80
+        let h = (dict["height"] as? NSNumber)?.doubleValue ?? 200
+        m.frame = NSRect(x: x, y: y, width: w > 10 ? w : 80, height: h > 10 ? h : 200)
+
+        m.color = ColorFromHex(dict["color"] as? String)
+        m.accentColor = ColorFromHex(dict["accentColor"] as? String)
+        m.midiChannel = (dict["midiChannel"] as? NSNumber)?.intValue ?? 1
+        m.midiType = (dict["midiType"] as? String) ?? "cc"
+        m.midiNumber = (dict["midiNumber"] as? NSNumber)?.intValue ?? 7
+        m.minValue = (dict["minValue"] as? NSNumber)?.intValue ?? 0
+        m.maxValue = (dict["maxValue"] as? NSNumber)?.intValue ?? 127
+        m.value = (dict["value"] as? NSNumber)?.doubleValue ?? 0.0
+
+        m.hasLabel = (dict["hasLabel"] as? NSNumber)?.boolValue ?? false
+        m.labelPosition = (dict["labelPosition"] as? String) ?? (m.type == "knob" ? "bottom" : "top")
+        m.orientation = (dict["orientation"] as? String) ?? "vertical"
+        m.knobStyle = (dict["knobStyle"] as? String) ?? "standard"
+        m.faderStyle = (dict["faderStyle"] as? String) ?? "standard"
+        m.fontSize = CGFloat((dict["fontSize"] as? NSNumber)?.doubleValue ?? 0.0)
+        m.shape = (dict["shape"] as? String) ?? "square"
+        m.hasBackground = (dict["hasBackground"] as? NSNumber)?.boolValue ?? false
+        m.hasVuMeter = (dict["hasVuMeter"] as? NSNumber)?.boolValue ?? false
+        m.vuMidiChannel = (dict["vuMidiChannel"] as? NSNumber)?.intValue ?? m.midiChannel
+        m.vuMidiNumber = (dict["vuMidiNumber"] as? NSNumber)?.intValue ?? m.midiNumber
+        m.hasBottomButton = (dict["hasBottomButton"] as? NSNumber)?.boolValue ?? false
+        m.buttonMidiNumber = (dict["buttonMidiNumber"] as? NSNumber)?.intValue ?? 60
+        m.buttonMode = (dict["buttonMode"] as? String) ?? "toggle"
+        m.buttonValue = (dict["buttonValue"] as? NSNumber)?.boolValue ?? false
+        m.mode = (dict["mode"] as? String) ?? "momentary"
+        return m
+    }
+
+    public func toDictionary() -> [String: Any] {
+        var dict: [String: Any] = [
+            "id": controlId,
+            "type": type,
+            "label": label,
+            "x": frame.origin.x,
+            "y": frame.origin.y,
+            "width": frame.size.width,
+            "height": frame.size.height,
+            "color": HexFromColor(color),
+            "accentColor": HexFromColor(accentColor),
+            "midiChannel": midiChannel,
+            "midiType": midiType,
+            "midiNumber": midiNumber,
+            "minValue": minValue,
+            "maxValue": maxValue,
+            "value": value,
+            "hasLabel": hasLabel,
+            "labelPosition": labelPosition,
+            "orientation": orientation,
+            "knobStyle": knobStyle,
+            "faderStyle": faderStyle
+        ]
+
+        if fontSize > 0 {
+            dict["fontSize"] = fontSize
+        }
+
+        if type == "fader" {
+            dict["hasVuMeter"] = hasVuMeter
+            if vuMidiNumber > 0 { dict["vuMidiNumber"] = vuMidiNumber }
+            if vuMidiChannel > 0 { dict["vuMidiChannel"] = vuMidiChannel }
+        } else if type == "button" {
+            dict["shape"] = shape
+            dict["mode"] = mode
+        } else if type == "label" {
+            dict["hasBackground"] = hasBackground
+        }
+
+        return dict
+    }
+}
+
+@objc public class LayoutPageModel: NSObject, NSCopying {
+    public var pageId: String = ""
+    public var name: String = "Screen 1"
+    public var controls: [MidiControlModel] = []
+
+    public override init() {
+        super.init()
+        self.pageId = String(format: "page_%u", arc4random() % 10000)
+    }
+
+    public static func page(withName name: String) -> LayoutPageModel {
+        let p = LayoutPageModel()
+        p.name = name.isEmpty ? "Screen" : name
+        return p
+    }
+
+    public func copy(with zone: NSZone? = nil) -> Any {
+        let copy = LayoutPageModel()
+        copy.pageId = self.pageId
+        copy.name = self.name
+        copy.controls = self.controls.map { ($0.copy() as! MidiControlModel) }
+        return copy
+    }
+
+    public static func page(with dict: [String: Any]) -> LayoutPageModel {
+        let p = LayoutPageModel()
+        p.pageId = (dict["id"] as? String) ?? String(format: "page_%u", arc4random() % 10000)
+        p.name = (dict["name"] as? String) ?? "Screen"
+        if let ctrls = dict["controls"] as? [[String: Any]] {
+            for cDict in ctrls {
+                p.controls.append(MidiControlModel.control(with: cDict))
+            }
+        }
+        return p
+    }
+
+    public func toDictionary() -> [String: Any] {
+        return [
+            "id": pageId,
+            "name": name,
+            "controls": controls.map { $0.toDictionary() }
+        ]
+    }
+}
+
+@objc public class LayoutModel: NSObject {
+    public var name: String = "Untitled Project"
+    public var author: String = "TouchStage Editor"
+    public var version: String = "1.0"
+    public var canvasWidth: CGFloat = 920.0
+    public var canvasHeight: CGFloat = 460.0
+    public var orientation: String = "landscape"
+    public var pages: [LayoutPageModel] = []
+    public var activePageIndex: Int = 0
+
+    public override init() {
+        super.init()
+        self.pages.append(LayoutPageModel.page(withName: "Screen 1"))
+    }
+
+    public var activePage: LayoutPageModel {
+        if pages.isEmpty {
+            pages.append(LayoutPageModel.page(withName: "Screen 1"))
+            activePageIndex = 0
+        }
+        if activePageIndex < 0 || activePageIndex >= pages.count {
+            activePageIndex = 0
+        }
+        return pages[activePageIndex]
+    }
+
+    public var controls: [MidiControlModel] {
+        get { return activePage.controls }
+        set { activePage.controls = newValue }
+    }
+
+    @discardableResult
+    public func addPage(withName name: String) -> LayoutPageModel {
+        let p = LayoutPageModel.page(withName: name)
+        pages.append(p)
+        activePageIndex = pages.count - 1
+        return p
+    }
+
+    public func removePage(at index: Int) {
+        if index >= 0 && index < pages.count && pages.count > 1 {
+            pages.remove(at: index)
+            if activePageIndex >= pages.count {
+                activePageIndex = pages.count - 1
+            }
+        }
+    }
+
+    public static func layout(fromJSONData data: Data) throws -> LayoutModel {
+        guard let dict = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw NSError(domain: "TouchStage", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid JSON format"])
+        }
+
+        let model = LayoutModel()
+        model.name = (dict["name"] as? String) ?? "Untitled Layout"
+        model.author = (dict["author"] as? String) ?? "AirMIDI"
+        model.version = (dict["version"] as? String) ?? "1.0"
+        if let cw = dict["canvasWidth"] as? NSNumber { model.canvasWidth = CGFloat(cw.doubleValue) }
+        if let ch = dict["canvasHeight"] as? NSNumber { model.canvasHeight = CGFloat(ch.doubleValue) }
+        if let ori = dict["orientation"] as? String {
+            model.orientation = ori
+        } else {
+            model.orientation = (model.canvasHeight > model.canvasWidth) ? "portrait" : "landscape"
+        }
+
+        model.pages.removeAll()
+
+        if let pagesArr = dict["pages"] as? [[String: Any]], !pagesArr.isEmpty {
+            for pDict in pagesArr {
+                model.pages.append(LayoutPageModel.page(with: pDict))
+            }
+        } else {
+            // Fallback for single-page legacy layouts
+            let defaultPage = LayoutPageModel.page(withName: "Screen 1")
+            if let ctrls = dict["controls"] as? [[String: Any]] {
+                for cDict in ctrls {
+                    defaultPage.controls.append(MidiControlModel.control(with: cDict))
+                }
+            }
+            model.pages.append(defaultPage)
+        }
+
+        if let activeIdx = dict["activePageIndex"] as? NSNumber {
+            model.activePageIndex = activeIdx.intValue
+        } else {
+            model.activePageIndex = 0
+        }
+
+        return model
+    }
+
+    public func toJSONData() throws -> Data {
+        let root: [String: Any] = [
+            "name": name,
+            "author": author,
+            "version": version,
+            "canvasWidth": canvasWidth,
+            "canvasHeight": canvasHeight,
+            "orientation": orientation,
+            "activePageIndex": activePageIndex,
+            "pages": pages.map { $0.toDictionary() },
+            "controls": controls.map { $0.toDictionary() }
+        ]
+        return try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted])
+    }
+
+    public func toJSONString() -> String {
+        let root: [String: Any] = [
+            "name": name,
+            "author": author,
+            "version": version,
+            "canvasWidth": canvasWidth,
+            "canvasHeight": canvasHeight,
+            "orientation": orientation,
+            "activePageIndex": activePageIndex,
+            "pages": pages.map { $0.toDictionary() },
+            "controls": controls.map { $0.toDictionary() }
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: []) else { return "{}" }
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    // Reference Preset: Stage 6-Track (Mixer Rig + Lead & FX)
+    public static func referencePreset() -> LayoutModel {
+        let l = LayoutModel()
+        l.name = "Live Stage Rig"
+        l.canvasWidth = 920.0
+        l.canvasHeight = 460.0
+        l.pages.removeAll()
+
+        // Page 1: Main Mixer Rig
+        let page1 = LayoutPageModel.page(withName: "Mixer Rig")
+
+        let channels: [[String: Any]] = [
+            ["id": "piano",   "label": "PIANO",   "color": "#005f73", "accent": "#00F0FF", "x": 12.0,  "cc": 11, "note": 60, "val": 78.0],
+            ["id": "pad",     "label": "PAD",     "color": "#475569", "accent": "#E0F7FF", "x": 120.0, "cc": 12, "note": 62, "val": 85.0],
+            ["id": "rhodes",  "label": "RHODES",  "color": "#4c1d95", "accent": "#C084FC", "x": 228.0, "cc": 13, "note": 64, "val": 82.0],
+            ["id": "organ",   "label": "ORGAN",   "color": "#78350f", "accent": "#FBBF24", "x": 336.0, "cc": 14, "note": 65, "val": 80.0],
+            ["id": "synth",   "label": "SYNTH",   "color": "#064e3b", "accent": "#00E676", "x": 444.0, "cc": 15, "note": 67, "val": 84.0],
+            ["id": "galileu", "label": "GALILEU", "color": "#831843", "accent": "#FF2E93", "x": 552.0, "cc": 16, "note": 69, "val": 76.0]
+        ]
+
+        for info in channels {
+            let x = info["x"] as! Double
+
+            // 1. Vertical Fader
+            let m = MidiControlModel()
+            m.controlId = "fader_\(info["id"] as! String)"
+            m.type = "fader"
+            m.label = info["label"] as! String
+            m.frame = NSRect(x: x, y: 12, width: 92, height: 235)
+            m.color = ColorFromHex(info["color"] as? String)
+            m.accentColor = ColorFromHex(info["accent"] as? String)
+            m.midiChannel = 1
+            m.midiType = "cc"
+            m.midiNumber = info["cc"] as! Int
+            m.minValue = 0
+            m.maxValue = 127
+            m.value = info["val"] as! Double
+            m.hasLabel = true
+            m.labelPosition = "top"
+            page1.controls.append(m)
+
+            // 2. Square Illuminated Pad Button
+            let btn = MidiControlModel()
+            btn.controlId = "btn_\(info["id"] as! String)"
+            btn.type = "button"
+            btn.shape = "square"
+            btn.label = ""
+            btn.frame = NSRect(x: x + 11, y: 258, width: 70, height: 68)
+            btn.color = ColorFromHex(info["color"] as? String)
+            btn.accentColor = ColorFromHex(info["accent"] as? String)
+            btn.midiChannel = 1
+            btn.midiType = "note"
+            btn.midiNumber = info["note"] as! Int
+            btn.mode = "toggle"
+            btn.value = 127
+            page1.controls.append(btn)
+
+            // 3. Bottom Rotary Knob
+            let kn = MidiControlModel()
+            kn.controlId = "knob_\(info["id"] as! String)"
+            kn.type = "knob"
+            kn.shape = "circle"
+            kn.label = ""
+            kn.frame = NSRect(x: x + 13, y: 338, width: 66, height: 76)
+            kn.color = ColorFromHex(info["color"] as? String)
+            kn.accentColor = ColorFromHex(info["accent"] as? String)
+            kn.midiChannel = 1
+            kn.midiType = "cc"
+            kn.midiNumber = 20 + (info["cc"] as! Int)
+            kn.minValue = 0
+            kn.maxValue = 127
+            kn.value = 64
+            kn.hasLabel = false
+            page1.controls.append(kn)
+        }
+
+        // Right Column: BELLS Pad
+        let bells = MidiControlModel()
+        bells.controlId = "pad_bells"
+        bells.type = "button"
+        bells.shape = "square"
+        bells.label = "BELLS"
+        bells.frame = NSRect(x: 666, y: 12, width: 150, height: 140)
+        bells.color = ColorFromHex("#78350f")
+        bells.accentColor = ColorFromHex("#FBBF24")
+        bells.midiChannel = 1
+        bells.midiType = "note"
+        bells.midiNumber = 72
+        bells.mode = "momentary"
+        bells.value = 127
+        page1.controls.append(bells)
+
+        // Right Column: SYNTH FILTER Big Knob
+        let knob = MidiControlModel()
+        knob.controlId = "knob_synth_filter"
+        knob.type = "knob"
+        knob.label = ""
+        knob.frame = NSRect(x: 666, y: 168, width: 150, height: 190)
+        knob.color = ColorFromHex("#064e3b")
+        knob.accentColor = ColorFromHex("#00E676")
+        knob.midiChannel = 1
+        knob.midiType = "cc"
+        knob.midiNumber = 74
+        knob.minValue = 0
+        knob.maxValue = 127
+        knob.value = 64
+        knob.hasLabel = false
+        page1.controls.append(knob)
+
+        // Right Column: SYNTH FILTER Capsule Label
+        let lblFilter = MidiControlModel()
+        lblFilter.controlId = "lbl_synth_filter"
+        lblFilter.type = "label"
+        lblFilter.label = "SYNTH FILTER"
+        lblFilter.frame = NSRect(x: 666, y: 375, width: 150, height: 34)
+        lblFilter.hasBackground = true
+        lblFilter.accentColor = ColorFromHex("#00E676")
+        page1.controls.append(lblFilter)
+
+        l.pages.append(page1)
+
+        // Page 2: Lead & Synth FX
+        let page2 = LayoutPageModel.page(withName: "Lead & FX")
+
+        let xy = MidiControlModel()
+        xy.controlId = "xy_filter_resonance"
+        xy.type = "xypad"
+        xy.label = "XY MORPH / FILTER"
+        xy.frame = NSRect(x: 40, y: 40, width: 360, height: 360)
+        xy.color = ColorFromHex("#1a2332")
+        xy.accentColor = ColorFromHex("#00e5ff")
+        xy.midiChannel = 1
+        xy.midiType = "cc"
+        xy.midiNumber = 1
+        page2.controls.append(xy)
+
+        let k1 = MidiControlModel()
+        k1.controlId = "knob_reverb"
+        k1.type = "knob"
+        k1.label = "REVERB"
+        k1.frame = NSRect(x: 460, y: 40, width: 120, height: 150)
+        k1.color = ColorFromHex("#280659")
+        k1.accentColor = ColorFromHex("#5f27cd")
+        k1.midiChannel = 1
+        k1.midiType = "cc"
+        k1.midiNumber = 91
+        k1.hasLabel = true
+        k1.labelPosition = "bottom"
+        page2.controls.append(k1)
+
+        let k2 = MidiControlModel()
+        k2.controlId = "knob_delay"
+        k2.type = "knob"
+        k2.label = "DELAY"
+        k2.frame = NSRect(x: 610, y: 40, width: 120, height: 150)
+        k2.color = ColorFromHex("#005f6b")
+        k2.accentColor = ColorFromHex("#00d2d3")
+        k2.midiChannel = 1
+        k2.midiType = "cc"
+        k2.midiNumber = 92
+        k2.hasLabel = true
+        k2.labelPosition = "bottom"
+        page2.controls.append(k2)
+
+        let k3 = MidiControlModel()
+        k3.controlId = "knob_chorus"
+        k3.type = "knob"
+        k3.label = "CHORUS"
+        k3.frame = NSRect(x: 760, y: 40, width: 120, height: 150)
+        k3.color = ColorFromHex("#40064a")
+        k3.accentColor = ColorFromHex("#ee5253")
+        k3.midiChannel = 1
+        k3.midiType = "cc"
+        k3.midiNumber = 93
+        k3.hasLabel = true
+        k3.labelPosition = "bottom"
+        page2.controls.append(k3)
+
+        // Trigger buttons
+        let padTitles = ["DROP", "SWEEP", "CRUSH", "STOP"]
+        for i in 0..<4 {
+            let pBtn = MidiControlModel()
+            pBtn.controlId = "fx_btn_\(i + 1)"
+            pBtn.type = "button"
+            pBtn.shape = "square"
+            pBtn.label = padTitles[i]
+            pBtn.frame = NSRect(x: 460 + i * 105, y: 230, width: 95, height: 95)
+            pBtn.color = ColorFromHex("#1e222d")
+            pBtn.accentColor = ColorFromHex("#ff9f43")
+            pBtn.midiChannel = 1
+            pBtn.midiType = "note"
+            pBtn.midiNumber = 80 + i
+            pBtn.mode = "momentary"
+            page2.controls.append(pBtn)
+        }
+
+        l.pages.append(page2)
+        l.activePageIndex = 0
+        return l
+    }
+
+    public static func mixer8Preset() -> LayoutModel {
+        let l = LayoutModel()
+        l.name = "Mixer 8 Canais"
+        l.canvasWidth = 960.0
+        l.canvasHeight = 460.0
+        l.pages.removeAll()
+
+        let page1 = LayoutPageModel.page(withName: "Canais 1-8")
+        let colors = ["#005f6b", "#4b5358", "#280659", "#5e3e06", "#0d4d22", "#40064a", "#004085", "#721c24"]
+        let accents = ["#00d2d3", "#8395a7", "#5f27cd", "#ff9f43", "#10ac84", "#ee5253", "#007bff", "#f8d7da"]
+        for i in 0..<8 {
+            let m = MidiControlModel()
+            m.controlId = "fader_ch\(i + 1)"
+            m.type = "fader"
+            m.label = "CH \(i + 1)"
+            m.frame = NSRect(x: 15 + i * 115, y: 10, width: 85, height: 360)
+            m.color = ColorFromHex(colors[i])
+            m.accentColor = ColorFromHex(accents[i])
+            m.midiChannel = 1
+            m.midiType = "cc"
+            m.midiNumber = 20 + i
+            m.minValue = 0
+            m.maxValue = 127
+            m.value = 64
+            m.hasLabel = true
+            m.labelPosition = "top"
+            page1.controls.append(m)
+
+            let btn = MidiControlModel()
+            btn.controlId = "btn_ch\(i + 1)"
+            btn.type = "button"
+            btn.shape = "circle"
+            btn.label = ""
+            btn.frame = NSRect(x: 30 + i * 115, y: 385, width: 56, height: 56)
+            btn.color = ColorFromHex(colors[i])
+            btn.accentColor = ColorFromHex(accents[i])
+            btn.midiChannel = 1
+            btn.midiType = "note"
+            btn.midiNumber = 48 + i
+            btn.mode = "toggle"
+            btn.value = 127
+            page1.controls.append(btn)
+        }
+        l.pages.append(page1)
+
+        let page2 = LayoutPageModel.page(withName: "Master & Aux")
+        let master = MidiControlModel()
+        master.controlId = "fader_master"
+        master.type = "fader"
+        master.label = "MASTER"
+        master.frame = NSRect(x: 800, y: 20, width: 100, height: 410)
+        master.color = ColorFromHex("#c0392b")
+        master.accentColor = ColorFromHex("#e74c3c")
+        master.midiChannel = 1
+        master.midiType = "cc"
+        master.midiNumber = 7
+        master.hasLabel = true
+        master.labelPosition = "top"
+        page2.controls.append(master)
+        l.pages.append(page2)
+
+        l.activePageIndex = 0
+        return l
+    }
+
+    public static func drumPadPreset() -> LayoutModel {
+        let l = LayoutModel()
+        l.name = "Matriz 16 Pads"
+        l.canvasWidth = 960.0
+        l.canvasHeight = 460.0
+        l.pages.removeAll()
+
+        let page1 = LayoutPageModel.page(withName: "16 Pads")
+        for i in 0..<16 {
+            let row = i / 4
+            let col = i % 4
+            let m = MidiControlModel()
+            m.controlId = "pad_\(i + 1)"
+            m.type = "button"
+            m.label = "PAD \(i + 1)"
+            m.frame = NSRect(x: 20 + col * 120, y: 20 + (3 - row) * 105, width: 105, height: 90)
+            m.color = ColorFromHex("#182030")
+            m.accentColor = ColorFromHex("#00e5ff")
+            m.midiChannel = 10
+            m.midiType = "note"
+            m.midiNumber = 36 + i
+            m.mode = "momentary"
+            page1.controls.append(m)
+        }
+        l.pages.append(page1)
+        l.activePageIndex = 0
+        return l
+    }
+}
