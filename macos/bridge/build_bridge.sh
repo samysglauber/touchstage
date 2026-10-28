@@ -4,15 +4,26 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
-echo "Building TouchStage Bridge (macOS Menu Bar)..."
+echo "Building TouchStage Bridge (Swift & SwiftUI)..."
 
-clang -O2 -fobjc-arc \
+# 1. Compile CoreMIDI / Wi-Fi backend (Objective-C)
+clang -c -O2 -fobjc-arc \
+    AirMIDIBridgeServer.m \
+    -o AirMIDIBridgeServer.o
+
+# 2. Compile Swift Frontend & Link
+swiftc -O \
+    -import-objc-header Bridge-Bridging-Header.h \
+    main.swift \
+    BridgeState.swift \
+    BridgeView.swift \
+    AirMIDIBridgeServer.o \
     -framework Cocoa \
     -framework CoreMIDI \
-    -x objective-c \
-    AirMIDIBridgeServer.m \
-    main.m \
+    -framework SwiftUI \
     -o "TouchStage_Bridge_bin"
+
+rm -f AirMIDIBridgeServer.o
 
 APP_DIR="TouchStage Bridge.app"
 rm -rf "$APP_DIR"
@@ -27,4 +38,4 @@ if [ -f "AppIcon.icns" ]; then
     cp "AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 fi
 
-echo "TouchStage Bridge.app built successfully at: $DIR/$APP_DIR"
+echo "TouchStage Bridge.app (Swift) built successfully at: $DIR/$APP_DIR"
