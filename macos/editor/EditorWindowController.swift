@@ -222,7 +222,6 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         topBar.material = .headerView
         topBar.blendingMode = .withinWindow
         topBar.state = .active
-        contentView.addSubview(topBar)
 
         let hairline = NSView(frame: NSRect(x: 0, y: topBarH - 1.0, width: bounds.size.width, height: 1.0))
         hairline.autoresizingMask = [.width, .minYMargin]
@@ -303,7 +302,20 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         orientationSegment.autoresizingMask = [.minXMargin]
         topBar.addSubview(orientationSegment)
 
-        // 2. Multi-Screen Tab Bar
+        // 2. Hardware-grade Canvas View
+        canvasView = EditorCanvasView(frame: NSRect(x: 0, y: 0, width: canvasW, height: bodyH))
+        canvasView.autoresizingMask = [.width, .height]
+        canvasView.layout = layout
+        canvasView.delegate = self
+        contentView.addSubview(canvasView)
+
+        // 3. Pro Sidebar Inspector View
+        inspectorView = InspectorView(frame: NSRect(x: bounds.size.width - inspectorW, y: 0, width: inspectorW, height: bounds.size.height - topBarH))
+        inspectorView.autoresizingMask = [.minXMargin, .height]
+        inspectorView.delegate = self
+        contentView.addSubview(inspectorView)
+
+        // 4. Multi-Screen Tab Bar
         tabBarView = AirTabBarView(frame: NSRect(x: 0, y: bounds.size.height - topBarH - tabBarH, width: canvasW, height: tabBarH))
         tabBarView.autoresizingMask = [.width, .minYMargin]
         tabBarView.layout = layout
@@ -311,18 +323,8 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         tabBarView.reloadTabs()
         contentView.addSubview(tabBarView)
 
-        // 3. Hardware-grade Canvas View
-        canvasView = EditorCanvasView(frame: NSRect(x: 0, y: 0, width: canvasW, height: bodyH))
-        canvasView.autoresizingMask = [.width, .height]
-        canvasView.layout = layout
-        canvasView.delegate = self
-        contentView.addSubview(canvasView)
-
-        // 4. Pro Sidebar Inspector View
-        inspectorView = InspectorView(frame: NSRect(x: bounds.size.width - inspectorW, y: 0, width: inspectorW, height: bounds.size.height - topBarH))
-        inspectorView.autoresizingMask = [.minXMargin, .height]
-        inspectorView.delegate = self
-        contentView.addSubview(inspectorView)
+        // 5. Add Header Bar on top of everything
+        contentView.addSubview(topBar, positioned: .above, relativeTo: nil)
     }
 
     private func createToolbarButton(title: String, symbol: String, tooltip: String, frame: NSRect, action: Selector) -> NSButton {

@@ -119,7 +119,7 @@ public class AirTabBarView: NSView {
 
         // Bar background
         NSColor(calibratedRed: 0.09, green: 0.10, blue: 0.13, alpha: 1.0).setFill()
-        dirtyRect.fill()
+        self.bounds.fill()
 
         // Bottom hairline divider
         AirColorBorder().setStroke()
