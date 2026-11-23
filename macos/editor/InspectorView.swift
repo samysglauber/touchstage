@@ -3,6 +3,11 @@ import Cocoa
 public class AirFlippedView: NSView {
     public override var isFlipped: Bool { return true }
     public override var mouseDownCanMoveWindow: Bool { return false }
+    public var onMouseDown: ((NSEvent) -> Void)?
+    public override func mouseDown(with event: NSEvent) {
+        onMouseDown?(event)
+        super.mouseDown(with: event)
+    }
 }
 
 @objc public protocol InspectorDelegate: AnyObject {
@@ -10,11 +15,24 @@ public class AirFlippedView: NSView {
     func inspectorDidUpdateControl(_ control: MidiControlModel)
     func inspectorDidRequestDuplicate(_ control: MidiControlModel)
     func inspectorDidRequestDelete(_ control: MidiControlModel)
+    @objc optional func inspectorDidRequestJumpToPage(_ pageId: String)
 }
 
 public class InspectorView: NSView, NSTextFieldDelegate {
     public weak var delegate: InspectorDelegate?
-    public var currentControl: MidiControlModel?
+    public var availablePages: [LayoutPageModel] = []
+    public var activePageId: String = ""
+    private var currentLinkablePages: [LayoutPageModel] = []
+    public var currentControls: [MidiControlModel] = []
+    public var currentControl: MidiControlModel? {
+        get { return currentControls.last }
+        set {
+            currentControls.removeAll()
+            if let val = newValue {
+                currentControls.append(val)
+            }
+        }
+    }
 
     private var visualEffect: NSVisualEffectView!
     private var scrollView: NSScrollView!
@@ -35,7 +53,11 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     private var fontSizeSlider: NSSlider!
     private var buttonShapeLabel: NSTextField!
     private var buttonShapeSegment: NSSegmentedControl!
+    private var displayModeLabel: NSTextField!
+    private var displayModeSegment: NSSegmentedControl!
     private var labelBgCheckbox: NSButton!
+    private var labelOrientationLabel: NSTextField!
+    private var labelOrientationSegment: NSSegmentedControl!
 
     // Knob & Fader specific options
     private var knobStyleLabel: NSTextField!
@@ -64,12 +86,20 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     private var midiNumberField: NSTextField!
     private var buttonModeLabel: NSTextField!
     private var buttonModeSegment: NSSegmentedControl!
+    private var capsuleStyleLabel: NSTextField!
+    private var capsuleStyleSegment: NSSegmentedControl!
 
     // MIDI Range
     private var rangeMinLabel: NSTextField!
     private var rangeMaxLabel: NSTextField!
     private var minValField: NSTextField!
     private var maxValField: NSTextField!
+
+    // Navigation / Screen Link Section
+    private var navHeader: NSTextField!
+    private var linkScreenLabel: NSTextField!
+    private var linkScreenPopup: NSPopUpButton!
+    private var jumpScreenButton: NSButton!
 
     // Position & Size Section
     private var posHeader: NSTextField!
@@ -90,6 +120,16 @@ public class InspectorView: NSView, NSTextFieldDelegate {
 
     public override var isFlipped: Bool { return true }
     public override var mouseDownCanMoveWindow: Bool { return false }
+
+    public override func mouseDown(with event: NSEvent) {
+        if colorWell != nil {
+            let pt = colorWell.convert(event.locationInWindow, from: nil)
+            if !colorWell.bounds.contains(pt) {
+                CloseColorPanelIfOpen()
+            }
+        }
+        super.mouseDown(with: event)
+    }
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -150,6 +190,13 @@ public class InspectorView: NSView, NSTextFieldDelegate {
 
         contentContainer = AirFlippedView(frame: NSRect(x: 0, y: 0, width: self.bounds.size.width, height: 600.0))
         contentContainer.autoresizingMask = [.width]
+        contentContainer.onMouseDown = { [weak self] event in
+            guard let self = self, self.colorWell != nil else { return }
+            let pt = self.colorWell.convert(event.locationInWindow, from: nil)
+            if !self.colorWell.bounds.contains(pt) {
+                CloseColorPanelIfOpen()
+            }
+        }
         scrollView.documentView = contentContainer
         self.addSubview(scrollView)
 
@@ -204,7 +251,7 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         contentContainer.addSubview(fontSizeLabel)
         fontSizeSlider = NSSlider(frame: NSRect(x: pad + halfW + 10, y: 150, width: halfW, height: 20))
         fontSizeSlider.minValue = 0
-        fontSizeSlider.maxValue = 32
+        fontSizeSlider.maxValue = 80
         fontSizeSlider.target = self
         fontSizeSlider.action = #selector(onFontSizeChanged(_:))
         contentContainer.addSubview(fontSizeSlider)
@@ -217,6 +264,15 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         buttonShapeSegment.segmentStyle = .texturedRounded
         buttonShapeSegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
         contentContainer.addSubview(buttonShapeSegment)
+
+        // Display Source Mode Segment
+        displayModeLabel = createLabel("Display Source", frame: NSRect(x: pad, y: 104, width: w, height: 14), bold: false)
+        contentContainer.addSubview(displayModeLabel)
+        displayModeSegment = NSSegmentedControl(labels: ["DAW Tempo (BPM)", "Custom MIDI CC"], trackingMode: .selectOne, target: self, action: #selector(onDisplayModeChanged(_:)))
+        displayModeSegment.frame = NSRect(x: pad, y: 122, width: w, height: 24)
+        displayModeSegment.segmentStyle = .texturedRounded
+        displayModeSegment.font = NSFont.systemFont(ofSize: 11.0, weight: .medium)
+        contentContainer.addSubview(displayModeSegment)
 
         // Label Capsule Background
         labelBgCheckbox = NSButton(checkboxWithTitle: "Capsule Background", target: self, action: #selector(onLabelBgToggled(_:)))
@@ -326,6 +382,14 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         buttonModeSegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
         contentContainer.addSubview(buttonModeSegment)
 
+        capsuleStyleLabel = createLabel("Capsule Style", frame: NSRect(x: pad, y: 384, width: halfW, height: 14), bold: false)
+        contentContainer.addSubview(capsuleStyleLabel)
+        capsuleStyleSegment = NSSegmentedControl(labels: ["Outline", "Filled"], trackingMode: .selectOne, target: self, action: #selector(onCapsuleStyleChanged(_:)))
+        capsuleStyleSegment.frame = NSRect(x: pad + halfW + 10, y: 380, width: halfW, height: 24)
+        capsuleStyleSegment.segmentStyle = .texturedRounded
+        capsuleStyleSegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        contentContainer.addSubview(capsuleStyleSegment)
+
         // MIDI Range (0 - 127)
         rangeMinLabel = createLabel("Min Value (0-127)", frame: NSRect(x: pad, y: 384, width: halfW, height: 14), bold: false)
         contentContainer.addSubview(rangeMinLabel)
@@ -341,6 +405,33 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         maxValField.target = self
         maxValField.action = #selector(onRangeChanged(_:))
         contentContainer.addSubview(maxValField)
+
+        // Navigation / Screen Link Section
+        navHeader = createSectionHeader("NAVIGATION / SCREEN LINK", frame: NSRect(x: pad, y: 440, width: w, height: 16))
+        contentContainer.addSubview(navHeader)
+
+        linkScreenLabel = createLabel("Link to Screen (Tap to Jump)", frame: NSRect(x: pad, y: 460, width: w, height: 14), bold: false)
+        contentContainer.addSubview(linkScreenLabel)
+
+        linkScreenPopup = NSPopUpButton(frame: NSRect(x: pad, y: 478, width: w, height: 26), pullsDown: false)
+        linkScreenPopup.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        linkScreenPopup.target = self
+        linkScreenPopup.action = #selector(onLinkScreenChanged(_:))
+        contentContainer.addSubview(linkScreenPopup)
+
+        jumpScreenButton = NSButton(title: "Jump ↗", target: self, action: #selector(onJumpScreenClicked(_:)))
+        jumpScreenButton.bezelStyle = .rounded
+        jumpScreenButton.font = NSFont.systemFont(ofSize: 11.0, weight: .semibold)
+        contentContainer.addSubview(jumpScreenButton)
+
+        // Label Orientation Segment
+        labelOrientationLabel = createLabel("Orientation", frame: NSRect(x: pad, y: 104, width: w, height: 14), bold: false)
+        contentContainer.addSubview(labelOrientationLabel)
+        labelOrientationSegment = NSSegmentedControl(labels: ["Horizontal", "Vertical"], trackingMode: .selectOne, target: self, action: #selector(onLabelOrientationChanged(_:)))
+        labelOrientationSegment.frame = NSRect(x: pad, y: 122, width: w, height: 24)
+        labelOrientationSegment.segmentStyle = .texturedRounded
+        labelOrientationSegment.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        contentContainer.addSubview(labelOrientationSegment)
 
         // Position & Size Section Header
         posHeader = createSectionHeader("POSITION & SIZE", frame: NSRect(x: pad, y: 342, width: w, height: 16))
@@ -429,8 +520,17 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     }
 
     public func bindControl(_ control: MidiControlModel?) {
-        currentControl = control
-        guard control != nil else {
+        if let c = control {
+            bindControls([c])
+        } else {
+            bindControls([])
+        }
+    }
+
+    public func bindControls(_ controls: [MidiControlModel]) {
+        CloseColorPanelIfOpen()
+        currentControls = controls
+        guard !controls.isEmpty, let _ = currentControl else {
             emptyStateView.isHidden = false
             scrollView.isHidden = true
             return
@@ -447,8 +547,12 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         guard let currentControl = currentControl else { return }
         isUpdatingUI = true
 
-        let typeDesc = currentControl.type.uppercased()
-        badgeLabel.stringValue = "\(typeDesc) • \(currentControl.label)"
+        if currentControls.count > 1 {
+            badgeLabel.stringValue = "\(currentControls.count) Controls Selected"
+        } else {
+            let typeDesc = currentControl.type.uppercased()
+            badgeLabel.stringValue = "\(typeDesc) • \(currentControl.label)"
+        }
         colorDot.layer?.backgroundColor = currentControl.color.cgColor
 
         labelField.stringValue = currentControl.label
@@ -466,6 +570,7 @@ public class InspectorView: NSView, NSTextFieldDelegate {
 
         midiNumberField.integerValue = currentControl.midiNumber
         buttonModeSegment.selectedSegment = (currentControl.mode == "toggle") ? 1 : 0
+        displayModeSegment.selectedSegment = (currentControl.displayMode == "cc") ? 1 : 0
         colorWell.color = currentControl.color
 
         xField.integerValue = Int(round(currentControl.frame.origin.x))
@@ -476,10 +581,32 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         // Appearance values
         showLabelCheckbox.state = currentControl.hasLabel ? .on : .off
         labelPosSegment.selectedSegment = (currentControl.labelPosition == "bottom") ? 1 : 0
+        fontSizeSlider.maxValue = 80.0
         fontSizeSlider.doubleValue = Double(currentControl.fontSize)
         fontSizeLabel.stringValue = (currentControl.fontSize > 0) ? "Font Size: \(Int(currentControl.fontSize)) pt" : "Font Size: Auto"
         buttonShapeSegment.selectedSegment = (currentControl.shape == "circle") ? 1 : 0
         labelBgCheckbox.state = currentControl.hasBackground ? .on : .off
+        capsuleStyleSegment.selectedSegment = (currentControl.backgroundStyle == "filled") ? 1 : 0
+        labelOrientationSegment.selectedSegment = (currentControl.orientation == "vertical") ? 1 : 0
+
+        // Navigation / Screen Link
+        currentLinkablePages = availablePages.filter { $0.pageId != activePageId }
+        linkScreenPopup.removeAllItems()
+        linkScreenPopup.addItem(withTitle: "None (No Link)")
+        var selectedItemIndex = 0
+        for (idx, page) in currentLinkablePages.enumerated() {
+            let title = page.name.isEmpty ? "Screen \(idx + 1)" : page.name
+            linkScreenPopup.addItem(withTitle: "\(title)")
+            if !currentControl.targetPageId.isEmpty && currentControl.targetPageId == page.pageId {
+                selectedItemIndex = idx + 1
+            }
+        }
+        if currentControl.targetPageId == activePageId {
+            currentControl.targetPageId = ""
+            selectedItemIndex = 0
+        }
+        linkScreenPopup.selectItem(at: selectedItemIndex)
+        jumpScreenButton.isHidden = currentControl.targetPageId.isEmpty
 
         // Fader & Knob behaviors
         faderOrientationSegment.selectedSegment = (currentControl.orientation == "horizontal") ? 1 : 0
@@ -544,11 +671,15 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         let isKnob = (ctrl.type == "knob")
         let isButton = (ctrl.type == "button")
         let isLabel = (ctrl.type == "label")
+        let isDisplay = (ctrl.type == "display")
 
-        // 1. Controls specific to Fader / Knob
-        if isFader || isKnob {
+        displayModeLabel.isHidden = true
+        displayModeSegment.isHidden = true
+
+        // 1. Controls specific to Fader / Knob / Display
+        if isFader || isKnob || isDisplay {
             showLabelCheckbox.isHidden = false
-            showLabelCheckbox.title = isFader ? "Show Label Header" : "Show Label"
+            showLabelCheckbox.title = isFader ? "Show Label Header" : (isDisplay ? "Show Header Label" : "Show Label")
             showLabelCheckbox.frame = NSRect(x: pad, y: y, width: w, height: 18)
             y += 24.0
 
@@ -559,24 +690,24 @@ public class InspectorView: NSView, NSTextFieldDelegate {
                 labelPosSegment.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 24)
                 y += 30.0
 
-                if isFader {
-                    labelBgCheckbox.isHidden = false
-                    labelBgCheckbox.title = "Capsule Background"
-                    labelBgCheckbox.frame = NSRect(x: pad, y: y, width: w, height: 18)
-                    y += 24.0
-                }
+                labelBgCheckbox.isHidden = false
+                labelBgCheckbox.title = isDisplay ? "Card Background" : "Capsule Background"
+                labelBgCheckbox.frame = NSRect(x: pad, y: y, width: w, height: 18)
+                y += 24.0
             } else {
                 labelPosLabel.isHidden = true
                 labelPosSegment.isHidden = true
+                labelBgCheckbox.isHidden = true
             }
         } else {
             showLabelCheckbox.isHidden = true
             labelPosLabel.isHidden = true
             labelPosSegment.isHidden = true
+            labelBgCheckbox.isHidden = true
         }
 
         // Font Size Slider
-        if isLabel || ctrl.hasLabel || isButton {
+        if isLabel || ctrl.hasLabel || isButton || isDisplay {
             fontSizeLabel.isHidden = false
             fontSizeSlider.isHidden = false
             fontSizeLabel.frame = NSRect(x: pad, y: y + 4, width: halfW, height: 14)
@@ -667,11 +798,39 @@ public class InspectorView: NSView, NSTextFieldDelegate {
 
         // 3. Controls specific to Label
         if isLabel {
+            labelOrientationLabel.isHidden = false
+            labelOrientationSegment.isHidden = false
+            labelOrientationLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
+            y += 18.0
+            labelOrientationSegment.frame = NSRect(x: pad, y: y, width: w, height: 24)
+            y += 30.0
+
             labelBgCheckbox.isHidden = false
+            labelBgCheckbox.title = "Capsule Background"
             labelBgCheckbox.frame = NSRect(x: pad, y: y, width: w, height: 18)
             y += 24.0
-        } else if !isFader || !ctrl.hasLabel {
-            labelBgCheckbox.isHidden = true
+
+            if ctrl.hasBackground {
+                capsuleStyleLabel.isHidden = false
+                capsuleStyleSegment.isHidden = false
+                capsuleStyleLabel.frame = NSRect(x: pad, y: y + 4, width: halfW, height: 14)
+                capsuleStyleSegment.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 24)
+                y += 30.0
+            } else {
+                capsuleStyleLabel.isHidden = true
+                capsuleStyleSegment.isHidden = true
+            }
+        } else {
+            labelOrientationLabel.isHidden = true
+            labelOrientationSegment.isHidden = true
+            if !(isFader || isKnob || isDisplay) || !ctrl.hasLabel {
+                labelBgCheckbox.isHidden = true
+                capsuleStyleLabel.isHidden = true
+                capsuleStyleSegment.isHidden = true
+            } else {
+                capsuleStyleLabel.isHidden = true
+                capsuleStyleSegment.isHidden = true
+            }
         }
 
         // Color Picker
@@ -682,6 +841,7 @@ public class InspectorView: NSView, NSTextFieldDelegate {
 
         // MIDI Section
         let hasMidi = !isLabel
+        let showRange = hasMidi && !isDisplay
         midiHeader.isHidden = !hasMidi
         channelLabel.isHidden = !hasMidi
         midiTypeLabel.isHidden = !hasMidi
@@ -691,12 +851,13 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         midiNumberField.isHidden = !hasMidi
         buttonModeLabel.isHidden = !isButton
         buttonModeSegment.isHidden = !isButton
-        rangeMinLabel.isHidden = !hasMidi
-        rangeMaxLabel.isHidden = !hasMidi
-        minValField.isHidden = !hasMidi
-        maxValField.isHidden = !hasMidi
+        rangeMinLabel.isHidden = !showRange
+        rangeMaxLabel.isHidden = !showRange
+        minValField.isHidden = !showRange
+        maxValField.isHidden = !showRange
 
         if hasMidi {
+            midiHeader.stringValue = isDisplay ? "MIDI Trigger (Tap Tempo / Action)" : "MIDI Mapping"
             midiHeader.frame = NSRect(x: pad, y: y, width: w, height: 16)
             y += 20.0
 
@@ -708,32 +869,67 @@ public class InspectorView: NSView, NSTextFieldDelegate {
             midiTypePopup.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 26)
             y += 34.0
 
-            if isButton {
+            if isButton || (isDisplay && ctrl.midiType == "note") {
                 midiNumLabel.stringValue = "Note Number"
-                midiNumLabel.frame = NSRect(x: pad, y: y, width: halfW, height: 14)
-                y += 18.0
-                midiNumberField.frame = NSRect(x: pad, y: y, width: halfW, height: 24)
-                y += 32.0
+            } else if ctrl.midiType == "pitchbend" {
+                midiNumLabel.stringValue = "Pitch Bend"
+            } else {
+                midiNumLabel.stringValue = "CC Number"
+            }
+            midiNumLabel.frame = NSRect(x: pad, y: y, width: halfW, height: 14)
+            y += 18.0
+            midiNumberField.frame = NSRect(x: pad, y: y, width: halfW, height: 24)
+            y += 32.0
 
+            if isButton {
                 buttonModeLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
                 y += 18.0
                 buttonModeSegment.frame = NSRect(x: pad, y: y, width: w, height: 24)
                 y += 34.0
-            } else {
-                midiNumLabel.stringValue = "CC Number"
-                midiNumLabel.frame = NSRect(x: pad, y: y, width: halfW, height: 14)
-                y += 18.0
-                midiNumberField.frame = NSRect(x: pad, y: y, width: halfW, height: 24)
-                y += 34.0
             }
 
-            // MIDI Range (0 - 127)
-            rangeMinLabel.frame = NSRect(x: pad, y: y, width: halfW, height: 14)
-            rangeMaxLabel.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 14)
+            if showRange {
+                // MIDI Range (0 - 127)
+                rangeMinLabel.frame = NSRect(x: pad, y: y, width: halfW, height: 14)
+                rangeMaxLabel.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 14)
+                y += 18.0
+
+                minValField.frame = NSRect(x: pad, y: y, width: halfW, height: 24)
+                maxValField.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 24)
+                y += 34.0
+            }
+        }
+
+        // Navigation / Screen Link Section
+        let canLink = isLabel || isButton || (isFader && ctrl.hasLabel) || (isKnob && ctrl.hasLabel)
+        navHeader.isHidden = !canLink
+        linkScreenLabel.isHidden = !canLink
+        linkScreenPopup.isHidden = !canLink
+        jumpScreenButton.isHidden = !canLink || ctrl.targetPageId.isEmpty
+
+        if canLink {
+            let linkLabelText: String
+            if isLabel {
+                linkLabelText = "Tap Label to Jump to Screen"
+            } else if isButton {
+                linkLabelText = "Tap Button to Jump to Screen"
+            } else {
+                linkLabelText = "Tap Capsule Header to Jump to Screen"
+            }
+            linkScreenLabel.stringValue = linkLabelText
+
+            navHeader.frame = NSRect(x: pad, y: y, width: w, height: 16)
+            y += 20.0
+            linkScreenLabel.frame = NSRect(x: pad, y: y, width: w, height: 14)
             y += 18.0
 
-            minValField.frame = NSRect(x: pad, y: y, width: halfW, height: 24)
-            maxValField.frame = NSRect(x: pad + halfW + 10, y: y, width: halfW, height: 24)
+            let hasTarget = !ctrl.targetPageId.isEmpty
+            let btnW: CGFloat = 72.0
+            let popupW = hasTarget ? (w - btnW - 8.0) : w
+            linkScreenPopup.frame = NSRect(x: pad, y: y, width: popupW, height: 26)
+            if hasTarget {
+                jumpScreenButton.frame = NSRect(x: pad + popupW + 8.0, y: y - 1, width: btnW, height: 28)
+            }
             y += 34.0
         }
 
@@ -785,7 +981,8 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     @objc private func onShowLabelToggled(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.hasLabel = (showLabelCheckbox.state == .on)
+        let val = (showLabelCheckbox.state == .on)
+        for c in currentControls { c.hasLabel = val }
         layoutFieldsForControl(ctrl)
         delegate?.inspectorDidUpdateControl(ctrl)
     }
@@ -793,43 +990,79 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     @objc private func onLabelPosChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.labelPosition = (labelPosSegment.selectedSegment == 1) ? "bottom" : "top"
+        let pos = (labelPosSegment.selectedSegment == 1) ? "bottom" : "top"
+        for c in currentControls { c.labelPosition = pos }
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
     @objc private func onButtonShapeChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.shape = (buttonShapeSegment.selectedSegment == 1) ? "circle" : "square"
+        let shp = (buttonShapeSegment.selectedSegment == 1) ? "circle" : "square"
+        for c in currentControls { c.shape = shp }
+        delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
+    @objc private func onDisplayModeChanged(_ sender: Any?) {
+        guard !isUpdatingUI, let ctrl = currentControl else { return }
+        notifyWillChange()
+        let mode = (displayModeSegment.selectedSegment == 1) ? "cc" : "bpm"
+        for c in currentControls { c.displayMode = mode }
+        layoutFieldsForControl(ctrl)
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
     @objc private func onLabelBgToggled(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.hasBackground = (labelBgCheckbox.state == .on)
+        let bg = (labelBgCheckbox.state == .on)
+        for c in currentControls { c.hasBackground = bg }
+        layoutFieldsForControl(ctrl)
+        delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
+    @objc private func onCapsuleStyleChanged(_ sender: Any?) {
+        guard !isUpdatingUI, let ctrl = currentControl else { return }
+        notifyWillChange()
+        let style = (capsuleStyleSegment.selectedSegment == 1) ? "filled" : "outline"
+        for c in currentControls { c.backgroundStyle = style }
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
     @objc private func onFieldChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.label = labelField.stringValue
-        ctrl.midiNumber = midiNumberField.integerValue
+        let lbl = labelField.stringValue
+        let num = midiNumberField.integerValue
+        if currentControls.count == 1 {
+            ctrl.label = lbl
+            ctrl.midiNumber = num
+        } else {
+            for c in currentControls { c.midiNumber = num }
+        }
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
     @objc private func onFrameFieldChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.frame = NSRect(x: xField.doubleValue, y: yField.doubleValue, width: wField.doubleValue, height: hField.doubleValue)
+        let w = wField.doubleValue
+        let h = hField.doubleValue
+        if currentControls.count > 1 {
+            for c in currentControls {
+                c.frame = NSRect(x: c.frame.origin.x, y: c.frame.origin.y, width: w, height: h)
+            }
+        } else {
+            ctrl.frame = NSRect(x: xField.doubleValue, y: yField.doubleValue, width: w, height: h)
+        }
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
     @objc private func onChannelChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.midiChannel = channelPopup.indexOfSelectedItem + 1
+        let ch = channelPopup.indexOfSelectedItem + 1
+        for c in currentControls { c.midiChannel = ch }
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
@@ -837,18 +1070,20 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
         let idx = midiTypePopup.indexOfSelectedItem
-        if idx == 0 { ctrl.midiType = "cc" }
-        else if idx == 1 { ctrl.midiType = "note" }
-        else { ctrl.midiType = "pitchbend" }
+        let t = (idx == 0) ? "cc" : ((idx == 1) ? "note" : "pitchbend")
+        for c in currentControls { c.midiType = t }
+        layoutFieldsForControl(ctrl)
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
     @objc private func onButtonModeChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.mode = (buttonModeSegment.selectedSegment == 1) ? "toggle" : "momentary"
+        let mode = (buttonModeSegment.selectedSegment == 1) ? "toggle" : "momentary"
+        for c in currentControls { c.mode = mode }
         delegate?.inspectorDidUpdateControl(ctrl)
     }
+
 
     @objc private func onKnobStyleChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
@@ -933,14 +1168,17 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     @objc private func onRangeChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        var minV = max(0, min(127, minValField.integerValue))
-        var maxV = max(0, min(127, maxValField.integerValue))
+        let maxLimit = (ctrl.type == "display") ? 999 : 127
+        var minV = max(0, min(maxLimit, minValField.integerValue))
+        var maxV = max(0, min(maxLimit, maxValField.integerValue))
         if minV > maxV {
             if (sender as? NSTextField) === minValField { maxV = minV }
             else { minV = maxV }
         }
-        ctrl.minValue = minV
-        ctrl.maxValue = maxV
+        for c in currentControls {
+            c.minValue = minV
+            c.maxValue = maxV
+        }
         minValField.integerValue = minV
         maxValField.integerValue = maxV
         delegate?.inspectorDidUpdateControl(ctrl)
@@ -949,8 +1187,9 @@ public class InspectorView: NSView, NSTextFieldDelegate {
     @objc private func onFontSizeChanged(_ sender: Any?) {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
-        ctrl.fontSize = round(CGFloat(fontSizeSlider.doubleValue))
-        fontSizeLabel.stringValue = (ctrl.fontSize > 0) ? "Font Size: \(Int(ctrl.fontSize)) pt" : "Font Size: Auto"
+        let sz = round(CGFloat(fontSizeSlider.doubleValue))
+        for c in currentControls { c.fontSize = sz }
+        fontSizeLabel.stringValue = (sz > 0) ? "Font Size: \(Int(sz)) pt" : "Font Size: Auto"
         delegate?.inspectorDidUpdateControl(ctrl)
     }
 
@@ -958,10 +1197,54 @@ public class InspectorView: NSView, NSTextFieldDelegate {
         guard !isUpdatingUI, let ctrl = currentControl else { return }
         notifyWillChange()
         let picked = colorWell.color
-        ctrl.accentColor = picked
-        ctrl.color = DeriveDarkBaseColor(from: picked)
+        let dark = DeriveDarkBaseColor(from: picked)
+        for c in currentControls {
+            c.accentColor = picked
+            c.color = dark
+        }
         colorDot.layer?.backgroundColor = picked.cgColor
         delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
+    @objc private func onLabelOrientationChanged(_ sender: Any?) {
+        guard !isUpdatingUI, let ctrl = currentControl else { return }
+        notifyWillChange()
+        let isVert = (labelOrientationSegment.selectedSegment == 1)
+        let newOrient = isVert ? "vertical" : "horizontal"
+        if ctrl.orientation != newOrient {
+            ctrl.orientation = newOrient
+            let f = ctrl.frame
+            if isVert && f.size.width > f.size.height {
+                ctrl.frame = NSRect(x: f.origin.x, y: f.origin.y, width: f.size.height, height: f.size.width)
+            } else if !isVert && f.size.height > f.size.width {
+                ctrl.frame = NSRect(x: f.origin.x, y: f.origin.y, width: f.size.height, height: f.size.width)
+            }
+            wField.integerValue = Int(round(ctrl.frame.size.width))
+            hField.integerValue = Int(round(ctrl.frame.size.height))
+        }
+        delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
+    @objc private func onLinkScreenChanged(_ sender: Any?) {
+        guard !isUpdatingUI, let ctrl = currentControl else { return }
+        notifyWillChange()
+        let idx = linkScreenPopup.indexOfSelectedItem
+        let targetId: String
+        if idx <= 0 || (idx - 1) >= currentLinkablePages.count {
+            targetId = ""
+        } else {
+            targetId = currentLinkablePages[idx - 1].pageId
+        }
+        for c in currentControls {
+            c.targetPageId = targetId
+        }
+        layoutFieldsForControl(ctrl)
+        delegate?.inspectorDidUpdateControl(ctrl)
+    }
+
+    @objc private func onJumpScreenClicked(_ sender: Any?) {
+        guard let ctrl = currentControl, !ctrl.targetPageId.isEmpty else { return }
+        delegate?.inspectorDidRequestJumpToPage?(ctrl.targetPageId)
     }
 
     @objc private func onDuplicateClicked(_ sender: Any?) {

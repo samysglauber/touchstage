@@ -55,6 +55,20 @@ class BridgeServer: NSObject, NetServiceDelegate {
     private var latestLayoutJson: String?
     private var dawRunningStatus: UInt8 = 0
     
+    struct CachedMidiMessage {
+        let status: UInt8
+        let d1: UInt8
+        let d2: UInt8
+    }
+    private var dawMidiCache: [UInt16: CachedMidiMessage] = [:]
+    private let dawMidiCacheLock = NSLock()
+    
+    // MIDI Clock & BPM Synchronization
+    private var clockTickCount: Int = 0
+    private var clockTimestamps: [UInt64] = []
+    private var lastCalculatedBpm: Double = 120.0
+    private var lastBpmBroadcastTime: Double = 0
+    
     init(port: Int = 9000) {
         signal(SIGPIPE, SIG_IGN)
         self.port = port
@@ -100,6 +114,63 @@ class BridgeServer: NSObject, NetServiceDelegate {
         }
     }
     
+    func sendMidiSysEx(_ bytes: [UInt8]) {
+        guard virtualSource != 0, !bytes.isEmpty else { return }
+        var packetList = MIDIPacketList()
+        var packet = MIDIPacketListInit(&packetList)
+        var msg = bytes
+        packet = MIDIPacketListAdd(&packetList, 1024, packet, 0, msg.count, &msg)
+        MIDIReceived(virtualSource, &packetList)
+    }
+    
+    func requestDawStateSync() {
+        sendMackieEnableMeters()
+        // SysEx Device Inquiry: requests identification and refresh from Ableton Mackie Control script
+        sendMidiSysEx([0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7])
+        // Mackie Host Query
+        sendMidiSysEx([0xF0, 0x00, 0x00, 0x66, 0x14, 0x00, 0xF7])
+    }
+    
+    private func recordInDawCache(status: UInt8, d1: UInt8, d2: UInt8) {
+        let msgType = status & 0xF0
+        let ch = status & 0x0F
+        let key: UInt16
+        if msgType == 0xB0 { // Control Change
+            key = 0xB000 | (UInt16(ch) << 8) | UInt16(d1)
+        } else if msgType == 0x90 || msgType == 0x80 { // Note On / Note Off
+            key = 0x9000 | (UInt16(ch) << 8) | UInt16(d1)
+        } else if msgType == 0xE0 { // Pitch Bend
+            key = 0xE000 | (UInt16(ch) << 8)
+        } else {
+            return
+        }
+        dawMidiCacheLock.lock()
+        dawMidiCache[key] = CachedMidiMessage(status: status, d1: d1, d2: d2)
+        dawMidiCacheLock.unlock()
+    }
+    
+    func dumpMidiCache(to device: ConnectedDevice) {
+        guard device.socketFd > 0 else { return }
+        dawMidiCacheLock.lock()
+        let msgs = Array(dawMidiCache.values)
+        dawMidiCacheLock.unlock()
+        
+        guard !msgs.isEmpty else { return }
+        
+        var packet = ""
+        for m in msgs {
+            packet += String(format: "MIDI:%02X,%d,%d\n", m.status, m.d1, m.d2)
+        }
+        
+        if let data = packet.data(using: .utf8) {
+            data.withUnsafeBytes { rawBuffer in
+                guard let ptr = rawBuffer.baseAddress else { return }
+                _ = Darwin.send(device.socketFd, ptr, data.count, 0)
+            }
+            NSLog("[TouchStage Bridge] Sent %ld cached DAW states to %@", msgs.count, device.name)
+        }
+    }
+    
     func handleIncomingMidiFromDaw(_ pktlist: UnsafePointer<MIDIPacketList>) {
         var packet = pktlist.pointee.packet
         for _ in 0..<pktlist.pointee.numPackets {
@@ -116,6 +187,58 @@ class BridgeServer: NSObject, NetServiceDelegate {
             while b < bytes.count {
                 let byte = bytes[b]
                 if byte >= 0xF8 {
+                    if byte == 0xF8 { // MIDI Timing Clock (24 PPQN)
+                        clockTickCount += 1
+                        let now = mach_absolute_time()
+                        clockTimestamps.append(now)
+                        if clockTimestamps.count > 49 { // 48 clock intervals = 2 full beats
+                            clockTimestamps.removeFirst()
+                        }
+                        if clockTimestamps.count >= 48 {
+                            let elapsedTicks = clockTimestamps.last! - clockTimestamps.first!
+                            var timebase = mach_timebase_info()
+                            mach_timebase_info(&timebase)
+                            let elapsedNanos = Double(elapsedTicks) * Double(timebase.numer) / Double(timebase.denom)
+                            let elapsedSeconds = elapsedNanos / 1_000_000_000.0
+                            if elapsedSeconds > 0.1 && elapsedSeconds < 6.0 {
+                                let instantaneousBpm = 120.0 / elapsedSeconds
+                                if lastCalculatedBpm <= 0 {
+                                    lastCalculatedBpm = instantaneousBpm
+                                } else {
+                                    lastCalculatedBpm = (lastCalculatedBpm * 0.85) + (instantaneousBpm * 0.15)
+                                }
+                            }
+                        }
+                        if clockTickCount % 24 == 0 {
+                            let beatNum = ((clockTickCount / 24) % 4) + 1
+                            broadcastStringToPhones("BEAT:\(beatNum)\n")
+                            
+                            let curTime = Date().timeIntervalSince1970
+                            if curTime - lastBpmBroadcastTime >= 0.35 {
+                                lastBpmBroadcastTime = curTime
+                                
+                                // Smart snap to eliminate CoreMIDI delivery jitter:
+                                var bpmToBroadcast = lastCalculatedBpm
+                                let nearestInt = round(lastCalculatedBpm)
+                                let nearestHalf = round(lastCalculatedBpm * 2.0) / 2.0
+                                if abs(lastCalculatedBpm - nearestInt) < 0.22 {
+                                    bpmToBroadcast = nearestInt
+                                } else if abs(lastCalculatedBpm - nearestHalf) < 0.12 {
+                                    bpmToBroadcast = nearestHalf
+                                } else {
+                                    bpmToBroadcast = round(lastCalculatedBpm * 10.0) / 10.0
+                                }
+                                
+                                let bpmStr = String(format: "%.1f", bpmToBroadcast)
+                                broadcastStringToPhones("BPM:\(bpmStr)\n")
+                            }
+                        }
+                    } else if byte == 0xFA { // Start
+                        clockTickCount = 0
+                        broadcastStringToPhones("TRANSPORT:START\n")
+                    } else if byte == 0xFC { // Stop
+                        broadcastStringToPhones("TRANSPORT:STOP\n")
+                    }
                     b += 1
                     continue
                 }
@@ -166,6 +289,7 @@ class BridgeServer: NSObject, NetServiceDelegate {
                         let d1 = bytes[b]
                         let d2 = bytes[b + 1]
                         b += 2
+                        recordInDawCache(status: status, d1: d1, d2: d2)
                         broadcastMidiToPhones(status: status, d1: d1, d2: d2)
                     } else {
                         break
@@ -190,6 +314,21 @@ class BridgeServer: NSObject, NetServiceDelegate {
             for dev in devs {
                 if dev.socketFd > 0 {
                     _ = send(dev.socketFd, ptr, data.count, 0)
+                }
+            }
+        }
+    }
+    
+    public func broadcastStringToPhones(_ msg: String) {
+        guard let data = msg.data(using: .utf8) else { return }
+        devicesLock.lock()
+        let devs = _devices
+        devicesLock.unlock()
+        data.withUnsafeBytes { rawBuffer in
+            guard let ptr = rawBuffer.baseAddress else { return }
+            for dev in devs {
+                if dev.socketFd > 0 {
+                    _ = Darwin.send(dev.socketFd, ptr, data.count, 0)
                 }
             }
         }
@@ -360,8 +499,15 @@ class BridgeServer: NSObject, NetServiceDelegate {
         devicesLock.unlock()
         notifyDeviceListChanged()
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            self?.sendMackieEnableMeters()
+        // Immediately dump cached DAW MIDI values to this newly connected device
+        dumpMidiCache(to: dev)
+        
+        if let layout = latestLayoutJson {
+            sendLayoutJson(json: layout, to: dev)
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.requestDawStateSync()
         }
         
         var recvBuffer = Data()
@@ -424,6 +570,15 @@ class BridgeServer: NSObject, NetServiceDelegate {
                         let d1 = UInt8(Int(parts[1]) ?? 0)
                         let d2 = UInt8(Int(parts[2]) ?? 0)
                         sendMidiStatus(status: UInt8(st), data1: d1, data2: d2)
+                    }
+                } else if line.hasPrefix("SYNC_DAW") || line.hasPrefix("GET_STATE") {
+                    dumpMidiCache(to: dev)
+                    requestDawStateSync()
+                    let ack = "OK:SYNC_DAW\n"
+                    if let ackData = ack.data(using: .utf8) {
+                        ackData.withUnsafeBytes { ptr in
+                            _ = Darwin.send(fd, ptr.baseAddress, ackData.count, 0)
+                        }
                     }
                 }
             }

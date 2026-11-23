@@ -39,6 +39,12 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
     return NSColor(hue: h, saturation: newS, brightness: newB, alpha: 1.0)
 }
 
+public func CloseColorPanelIfOpen() {
+    if NSColorPanel.sharedColorPanelExists && NSColorPanel.shared.isVisible {
+        NSColorPanel.shared.orderOut(nil)
+    }
+}
+
 @objc public class MidiControlModel: NSObject, NSCopying {
     public var controlId: String = ""
     public var type: String = "fader" // "fader", "knob", "button", "xypad", "label"
@@ -65,6 +71,8 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
     public var fontSize: CGFloat = 0.0
     public var shape: String = "square" // "square", "circle"
     public var hasBackground: Bool = false
+    public var backgroundStyle: String = "outline" // "outline", "filled"
+    public var displayMode: String = "bpm" // "bpm", "cc"
     public var hasVuMeter: Bool = false
     public var vuMidiChannel: Int = 1
     public var vuMidiNumber: Int = 7
@@ -75,6 +83,7 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
     public var buttonMode: String = "toggle"
     public var buttonValue: Bool = false
     public var mode: String = "momentary" // "momentary", "toggle"
+    public var targetPageId: String = "" // Target Screen/Page ID to jump to on tap
 
     public override init() {
         super.init()
@@ -106,6 +115,8 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
         copy.fontSize = self.fontSize
         copy.shape = self.shape
         copy.hasBackground = self.hasBackground
+        copy.backgroundStyle = self.backgroundStyle
+        copy.displayMode = self.displayMode
         copy.hasVuMeter = self.hasVuMeter
         copy.vuMidiChannel = self.vuMidiChannel
         copy.vuMidiNumber = self.vuMidiNumber
@@ -116,6 +127,7 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
         copy.buttonMode = self.buttonMode
         copy.buttonValue = self.buttonValue
         copy.mode = self.mode
+        copy.targetPageId = self.targetPageId
         return copy
     }
 
@@ -138,11 +150,15 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
         m.midiNumber = (dict["midiNumber"] as? NSNumber)?.intValue ?? 7
         m.minValue = (dict["minValue"] as? NSNumber)?.intValue ?? 0
         m.maxValue = (dict["maxValue"] as? NSNumber)?.intValue ?? 127
-        m.value = (dict["value"] as? NSNumber)?.doubleValue ?? 0.0
+        m.value = (dict["value"] as? NSNumber)?.doubleValue ?? ((m.type == "button") ? 127.0 : 0.0)
 
         m.hasLabel = (dict["hasLabel"] as? NSNumber)?.boolValue ?? false
         m.labelPosition = (dict["labelPosition"] as? String) ?? (m.type == "knob" ? "bottom" : "top")
-        m.orientation = (dict["orientation"] as? String) ?? "vertical"
+        if m.type == "label" {
+            m.orientation = (dict["orientation"] as? String) ?? ((m.frame.size.height > m.frame.size.width) ? "vertical" : "horizontal")
+        } else {
+            m.orientation = (dict["orientation"] as? String) ?? "vertical"
+        }
         m.knobStyle = (dict["knobStyle"] as? String) ?? "standard"
         m.valueDisplay = (dict["valueDisplay"] as? String) ?? "none"
         m.valuePosition = (dict["valuePosition"] as? String) ?? "center"
@@ -154,15 +170,18 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
         m.faderStyle = (dict["faderStyle"] as? String) ?? "standard"
         m.fontSize = CGFloat((dict["fontSize"] as? NSNumber)?.doubleValue ?? 0.0)
         m.shape = (dict["shape"] as? String) ?? "square"
-        m.hasBackground = (dict["hasBackground"] as? NSNumber)?.boolValue ?? (m.type == "fader" || m.type == "label")
+        m.hasBackground = (dict["hasBackground"] as? NSNumber)?.boolValue ?? (m.type == "fader" || m.type == "label" || m.type == "knob")
+        m.backgroundStyle = (dict["backgroundStyle"] as? String) ?? "outline"
+        m.displayMode = (dict["displayMode"] as? String) ?? "bpm"
         m.hasVuMeter = (dict["hasVuMeter"] as? NSNumber)?.boolValue ?? false
-        m.vuMidiChannel = (dict["vuMidiChannel"] as? NSNumber)?.intValue ?? m.midiChannel
-        m.vuMidiNumber = (dict["vuMidiNumber"] as? NSNumber)?.intValue ?? m.midiNumber
+        m.vuMidiChannel = (dict["vuMidiChannel"] as? NSNumber)?.intValue ?? 0
+        m.vuMidiNumber = (dict["vuMidiNumber"] as? NSNumber)?.intValue ?? 0
         m.hasBottomButton = (dict["hasBottomButton"] as? NSNumber)?.boolValue ?? false
         m.buttonMidiNumber = (dict["buttonMidiNumber"] as? NSNumber)?.intValue ?? 60
         m.buttonMode = (dict["buttonMode"] as? String) ?? "toggle"
         m.buttonValue = (dict["buttonValue"] as? NSNumber)?.boolValue ?? false
-        m.mode = (dict["mode"] as? String) ?? "momentary"
+        m.mode = (dict["mode"] as? String) ?? ((m.type == "button") ? "toggle" : "momentary")
+        m.targetPageId = (dict["targetPageId"] as? String) ?? ""
         return m
     }
 
@@ -189,8 +208,14 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
             "knobStyle": knobStyle,
             "valueDisplay": valueDisplay,
             "valuePosition": valuePosition,
-            "faderStyle": faderStyle
+            "faderStyle": faderStyle,
+            "hasBackground": hasBackground,
+            "backgroundStyle": backgroundStyle
         ]
+
+        if !targetPageId.isEmpty {
+            dict["targetPageId"] = targetPageId
+        }
 
         if fontSize > 0 {
             dict["fontSize"] = fontSize
@@ -204,10 +229,21 @@ public func DeriveDarkBaseColor(from color: NSColor?) -> NSColor {
             if vuMidiNumber > 0 { dict["vuMidiNumber"] = vuMidiNumber }
             if vuMidiChannel > 0 { dict["vuMidiChannel"] = vuMidiChannel }
             dict["hasBackground"] = hasBackground
+            dict["hasBottomButton"] = hasBottomButton
+            if hasBottomButton {
+                dict["buttonMidiNumber"] = buttonMidiNumber
+                dict["buttonMode"] = buttonMode
+                dict["buttonValue"] = buttonValue
+            }
         } else if type == "button" {
             dict["shape"] = shape
             dict["mode"] = mode
+        } else if type == "knob" {
+            dict["hasBackground"] = hasBackground
         } else if type == "label" {
+            dict["hasBackground"] = hasBackground
+        } else if type == "display" {
+            dict["displayMode"] = displayMode
             dict["hasBackground"] = hasBackground
         }
 

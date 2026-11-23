@@ -9,6 +9,7 @@ echo "Building TouchStage Editor (100% Pure Swift & Cocoa)..."
 swiftc -O \
     AirTheme.swift \
     LayoutModel.swift \
+    EditorSyncServer.swift \
     AirTabBarView.swift \
     InspectorView.swift \
     EditorCanvasView.swift \

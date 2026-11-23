@@ -31,8 +31,9 @@ class EditorAppDelegate: NSObject, NSApplicationDelegate {
         fileMenu.addItem(withTitle: "New Project", action: #selector(EditorWindowController.onNewLayoutClicked(_:)), keyEquivalent: "n")
         fileMenu.addItem(withTitle: "Open Layout...", action: #selector(EditorWindowController.onOpenLayoutClicked(_:)), keyEquivalent: "o")
         fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(withTitle: "Save Layout File...", action: #selector(EditorWindowController.onSaveLayoutClicked(_:)), keyEquivalent: "s")
-        fileMenu.addItem(withTitle: "Save as Preset...", action: #selector(EditorWindowController.onSavePresetClicked(_:)), keyEquivalent: "S")
+        fileMenu.addItem(withTitle: "Save Layout File", action: #selector(EditorWindowController.onSaveLayoutClicked(_:)), keyEquivalent: "s")
+        fileMenu.addItem(withTitle: "Save Layout File As...", action: #selector(EditorWindowController.onSaveAsLayoutClicked(_:)), keyEquivalent: "S")
+        fileMenu.addItem(withTitle: "Save as Preset...", action: #selector(EditorWindowController.onSavePresetClicked(_:)), keyEquivalent: "P")
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileMenuItem.submenu = fileMenu

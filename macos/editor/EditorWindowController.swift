@@ -146,7 +146,7 @@ public class TouchStageRecentRowButton: NSButton {
         ]
         (projectName as NSString).draw(at: NSPoint(x: 46, y: 8.0), withAttributes: titleAttr)
 
-        var sub = isPortrait ? "Vertical (460 × 920)" : "Horizontal (920 × 460)"
+        var sub = isPortrait ? "Portrait (460 × 920)" : "Landscape (920 × 460)"
         if projectPath == "builtin_stage8" {
             sub += " • Factory Preset"
         } else if !projectPath.isEmpty {
@@ -176,6 +176,7 @@ public class TouchStageRecentRowButton: NSButton {
 
 public class EditorWindowController: NSWindowController, EditorCanvasDelegate, InspectorDelegate, AirTabBarDelegate {
     public var layout: LayoutModel = LayoutModel.blankLayout()
+    public var currentFileURL: URL? = nil
 
     private var canvasView: EditorCanvasView!
     private var inspectorView: InspectorView!
@@ -325,6 +326,9 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
 
         // 5. Add Header Bar on top of everything
         contentView.addSubview(topBar, positioned: .above, relativeTo: nil)
+
+        // 6. Start direct Wi-Fi sync server (works without Bridge)
+        EditorSyncServer.shared.startIfNeeded(with: layout)
     }
 
     private func createToolbarButton(title: String, symbol: String, tooltip: String, frame: NSRect, action: Selector) -> NSButton {
@@ -352,14 +356,19 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
     // MARK: - EditorCanvasDelegate
 
     public func canvasDidSelectControl(_ control: MidiControlModel?) {
-        inspectorView.bindControl(control)
+        CloseColorPanelIfOpen()
+        inspectorView.availablePages = layout.pages
+        inspectorView.activePageId = layout.activePage.pageId
+        inspectorView.bindControls(canvasView.selectedControls)
     }
 
     public func canvasDidChangeControl(_ control: MidiControlModel) {
+        inspectorView.activePageId = layout.activePage.pageId
         inspectorView.refreshValues()
     }
 
     public func canvasDidDeleteControl(_ control: MidiControlModel?) {
+        CloseColorPanelIfOpen()
         inspectorView.bindControl(nil)
     }
 
@@ -381,12 +390,20 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         canvasView.deleteSelected()
     }
 
+    public func inspectorDidRequestJumpToPage(_ pageId: String) {
+        if let idx = layout.pages.firstIndex(where: { $0.pageId == pageId }) {
+            tabBarDidSelectPageIndex(idx)
+        }
+    }
+
     // MARK: - AirTabBarDelegate
 
     public func tabBarDidSelectPageIndex(_ index: Int) {
         if index >= 0 && index < layout.pages.count {
+            CloseColorPanelIfOpen()
             layout.activePageIndex = index
             canvasView.selectedControl = nil
+            inspectorView.activePageId = layout.activePage.pageId
             inspectorView.bindControl(nil)
             tabBarView.reloadTabs()
             canvasView.setNeedsDisplay(canvasView.bounds)
@@ -394,9 +411,11 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
     }
 
     public func tabBarDidRequestAddPage() {
+        CloseColorPanelIfOpen()
         let pageName = "Screen \(layout.pages.count + 1)"
         layout.addPage(withName: pageName)
         canvasView.selectedControl = nil
+        inspectorView.activePageId = layout.activePage.pageId
         inspectorView.bindControl(nil)
         tabBarView.reloadTabs()
         canvasView.setNeedsDisplay(canvasView.bounds)
@@ -404,8 +423,10 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
 
     public func tabBarDidRequestDeletePageIndex(_ index: Int) {
         if layout.pages.count <= 1 { return }
+        CloseColorPanelIfOpen()
         layout.removePage(at: index)
         canvasView.selectedControl = nil
+        inspectorView.activePageId = layout.activePage.pageId
         inspectorView.bindControl(nil)
         tabBarView.reloadTabs()
         canvasView.setNeedsDisplay(canvasView.bounds)
@@ -531,7 +552,6 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
                 return
             } else if rep == "builtin_stage8" {
                 layout = LayoutModel.referencePreset()
-                recordRecentProject(named: "Stage 8-Track", path: "builtin_stage8", orientation: "landscape")
             } else {
                 if let data = try? Data(contentsOf: URL(fileURLWithPath: rep)),
                    let loaded = try? LayoutModel.layout(fromJSONData: data) {
@@ -617,7 +637,7 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         input.stringValue = "Untitled Project"
         container.addSubview(input)
 
-        let orientChoice = NSSegmentedControl(labels: ["Horizontal (Landscape)", "Vertical (Portrait)"], trackingMode: .selectOne, target: nil, action: nil)
+        let orientChoice = NSSegmentedControl(labels: ["Landscape", "Portrait"], trackingMode: .selectOne, target: nil, action: nil)
         orientChoice.frame = NSRect(x: 0, y: 0, width: 280, height: 22)
         orientChoice.segmentStyle = .texturedRounded
         orientChoice.font = NSFont.systemFont(ofSize: 11.0)
@@ -655,23 +675,38 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
         tabBarView.reloadTabs()
         inspectorView.bindControl(nil)
         presetsPopup.selectItem(at: -1)
-        recordRecentProject(named: newLayout.name, path: "", orientation: newLayout.orientation)
     }
 
     @IBAction public func onSaveLayoutClicked(_ sender: Any?) {
+        if let url = currentFileURL {
+            saveLayoutDirectly(to: url)
+        } else {
+            onSaveAsLayoutClicked(sender)
+        }
+    }
+
+    @IBAction public func onSaveAsLayoutClicked(_ sender: Any?) {
         guard let window = self.window else { return }
         let savePanel = NSSavePanel()
-        savePanel.title = "Export TouchStage Layout File"
-        savePanel.nameFieldStringValue = "\(layout.name.lowercased().replacingOccurrences(of: " ", with: "_")).json"
+        savePanel.title = "Save TouchStage Layout File"
+        let defaultName = currentFileURL?.lastPathComponent ?? "\(layout.name.lowercased().replacingOccurrences(of: " ", with: "_")).json"
+        savePanel.nameFieldStringValue = defaultName
 
         savePanel.beginSheetModal(for: window) { [weak self] result in
             guard let self = self else { return }
             if result == .OK, let url = savePanel.url {
-                if let data = try? self.layout.toJSONData() {
-                    try? data.write(to: url)
-                    self.recordRecentProject(named: self.layout.name, path: url.path, orientation: self.layout.orientation)
-                }
+                self.currentFileURL = url
+                self.saveLayoutDirectly(to: url)
             }
+        }
+    }
+
+    private func saveLayoutDirectly(to url: URL) {
+        if let data = try? self.layout.toJSONData() {
+            try? data.write(to: url)
+            self.recordRecentProject(named: self.layout.name, path: url.path, orientation: self.layout.orientation)
+            EditorSyncServer.shared.updateLayoutCache(self.layout)
+            NSLog("[TouchStage Editor] Successfully saved layout to: %@", url.path)
         }
     }
 
@@ -685,6 +720,7 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
             if result == .OK, let url = openPanel.url {
                 if let data = try? Data(contentsOf: url),
                    let loaded = try? LayoutModel.layout(fromJSONData: data) {
+                    self.currentFileURL = url
                     self.layout = loaded
                     self.orientationSegment.selectedSegment = (loaded.canvasHeight > loaded.canvasWidth) ? 1 : 0
                     self.canvasView.layout = loaded
@@ -693,24 +729,25 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
                     self.inspectorView.bindControl(nil)
                     self.presetsPopup.selectItem(withTitle: loaded.name)
                     self.recordRecentProject(named: loaded.name, path: url.path, orientation: loaded.orientation)
+                    EditorSyncServer.shared.updateLayoutCache(loaded)
                 }
             }
         }
     }
 
     @IBAction public func onSendToBridgeClicked(_ sender: Any?) {
-        let syncedCount = pushLayoutToLocalBridgeSilently()
+        let syncedCount = EditorSyncServer.shared.pushLayout(layout)
         let alert = NSAlert()
 
         if syncedCount < 0 {
-            alert.icon = AirSymbol("exclamationmark.triangle.fill", 36.0)
-            alert.messageText = "TouchStage Bridge Not Found"
-            alert.informativeText = "TouchStage Bridge is not currently running.\n\nPlease launch TouchStage Bridge from your Applications to connect devices."
+            alert.icon = AirSymbol("wifi.slash", 36.0)
+            alert.messageText = "TouchStage Bridge Not Running"
+            alert.informativeText = "Please launch TouchStage Bridge to connect with your DAW and mobile devices, then click Push to Devices."
             alert.addButton(withTitle: "OK")
         } else if syncedCount == 0 {
-            alert.icon = AirSymbol("wifi.slash", 36.0)
-            alert.messageText = "No Mobile Devices Connected"
-            alert.informativeText = "TouchStage Bridge is active, but no mobile device is currently connected to it.\n\nPlease open TouchStage on your mobile device (Android) and connect to this Mac first, then click Sync to Devices."
+            alert.icon = AirSymbol("checkmark.circle.fill", 36.0)
+            alert.messageText = "Layout Saved to Bridge"
+            alert.informativeText = "Layout \"\(layout.name)\" was cached in TouchStage Bridge.\n\nAs soon as TouchStage connects on your phone, this layout will be received automatically."
             alert.addButton(withTitle: "OK")
         } else {
             alert.icon = AirSymbol("checkmark.circle.fill", 36.0)
@@ -725,66 +762,7 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
     }
 
     private func pushLayoutToLocalBridgeSilently() -> Int {
-        let sock = socket(AF_INET, SOCK_STREAM, 0)
-        if sock < 0 { return -1 }
-
-        var tv = timeval(tv_sec: 1, tv_usec: 500000)
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(9000).bigEndian
-        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr)
-
-        let connectRes = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-
-        if connectRes != 0 {
-            Darwin.close(sock)
-            return -1
-        }
-
-        var json = layout.toJSONString()
-        json = json.replacingOccurrences(of: "\r", with: "")
-        json = json.replacingOccurrences(of: "\n", with: " ")
-
-        let payload = "SYNC_LAYOUT:\(json)\n"
-        guard let data = payload.data(using: .utf8) else {
-            Darwin.close(sock)
-            return 0
-        }
-
-        data.withUnsafeBytes { rawBuf in
-            guard let ptr = rawBuf.baseAddress else { return }
-            var sent = 0
-            let total = data.count
-            while sent < total {
-                let n = send(sock, ptr.advanced(by: sent), total - sent, 0)
-                if n <= 0 { break }
-                sent += n
-            }
-        }
-
-        var ackBuf = [CChar](repeating: 0, count: 64)
-        let ackLen = recv(sock, &ackBuf, ackBuf.count - 1, 0)
-        Darwin.close(sock)
-
-        if ackLen > 0 {
-            let ackStr = String(cString: ackBuf)
-            if ackStr.hasPrefix("OK:SYNC:") {
-                let countStr = String(ackStr.dropFirst(8)).trimmingCharacters(in: .whitespacesAndNewlines)
-                return Int(countStr) ?? 1
-            }
-            if ackStr.hasPrefix("OK:SYNC") {
-                return 1
-            }
-        }
-
-        return 0
+        return EditorSyncServer.shared.pushLayout(layout)
     }
 
     // MARK: - Responder Chain Actions
@@ -808,13 +786,16 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
     // MARK: - Recents & Launcher Sheet
 
     private func recordRecentProject(named name: String, path: String, orientation: String) {
-        if name.isEmpty { return }
+        if name.isEmpty || path.isEmpty { return }
+        if path.hasPrefix("builtin_") { return }
+        guard FileManager.default.fileExists(atPath: path) else { return }
+
         var recents = (UserDefaults.standard.array(forKey: "TouchStageRecentProjects") as? [[String: Any]]) ?? []
 
         recents.removeAll { dict in
             let dictPath = dict["path"] as? String ?? ""
             let dictName = dict["name"] as? String ?? ""
-            return (!path.isEmpty && dictPath == path) || dictName == name
+            return dictPath == path || dictName == name
         }
 
         recents.insert([
@@ -834,53 +815,28 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
     private func loadRecentProjects() -> [[String: Any]] {
         var results: [[String: Any]] = []
 
-        // 1. Built-in
-        results.append([
-            "name": "Stage 8-Track",
-            "path": "builtin_stage8",
-            "orientation": "landscape"
-        ])
-
-        // 2. Presets Directory
-        let dir = presetsDirectoryPath()
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
-        for file in files {
-            if (file as NSString).pathExtension.lowercased() == "json" {
-                let title = (file as NSString).deletingPathExtension
-                let fullPath = (dir as NSString).appendingPathComponent(file)
-                var orient = "landscape"
-                if let d = try? Data(contentsOf: URL(fileURLWithPath: fullPath)),
-                   let dict = try? JSONSerialization.jsonObject(with: d, options: []) as? [String: Any] {
-                    if let o = dict["orientation"] as? String {
-                        orient = o
-                    } else if let ch = dict["canvasHeight"] as? NSNumber, let cw = dict["canvasWidth"] as? NSNumber, ch.doubleValue > cw.doubleValue {
-                        orient = "portrait"
-                    }
-                }
-                results.append([
-                    "name": title,
-                    "path": fullPath,
-                    "orientation": orient
-                ])
-            }
-        }
-
-        // 3. Saved Recents
         if let savedRecents = UserDefaults.standard.array(forKey: "TouchStageRecentProjects") as? [[String: Any]] {
             for item in savedRecents {
-                let p = item["path"] as? String ?? ""
-                let name = item["name"] as? String ?? ""
-                if !p.lowercased().contains("builtin_stage8") && !p.lowercased().contains("builtin_stage6") {
-                    let alreadyAdded = results.contains {
-                        ($0["path"] as? String == p) || ($0["name"] as? String == name)
+                guard let p = item["path"] as? String, !p.isEmpty else { continue }
+                if p.hasPrefix("builtin_") { continue }
+                if FileManager.default.fileExists(atPath: p) {
+                    var mutable = item
+                    if let d = try? Data(contentsOf: URL(fileURLWithPath: p)),
+                       let dict = try? JSONSerialization.jsonObject(with: d, options: []) as? [String: Any] {
+                        if let o = dict["orientation"] as? String {
+                            mutable["orientation"] = o
+                        }
+                        if let n = dict["name"] as? String, !n.isEmpty {
+                            mutable["name"] = n
+                        }
                     }
-                    if !alreadyAdded && (p.isEmpty || FileManager.default.fileExists(atPath: p)) {
-                        results.append(item)
-                    }
+                    results.append(mutable)
                 }
             }
         }
 
+        // Clean up UserDefaults so invalid/unsaved entries are purged
+        UserDefaults.standard.set(results, forKey: "TouchStageRecentProjects")
         return results
     }
 
@@ -999,27 +955,40 @@ public class EditorWindowController: NSWindowController, EditorCanvasDelegate, I
 
         let recents = loadRecentProjects()
         let rowH: CGFloat = 50.0
-        let listContentH = max(330.0, CGFloat(recents.count) * rowH + 10.0)
 
-        let scrollView = NSScrollView(frame: NSRect(x: 20, y: 16, width: 388, height: 334))
-        scrollView.hasVerticalScroller = (CGFloat(recents.count) * rowH > 330.0)
-        scrollView.drawsBackground = false
-        scrollView.autohidesScrollers = true
+        if recents.isEmpty {
+            let emptyLabel = NSTextField(frame: NSRect(x: 24, y: 150, width: 380, height: 60))
+            emptyLabel.stringValue = "No saved projects yet.\nSave or open a project file to see it here."
+            emptyLabel.alignment = .center
+            emptyLabel.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+            emptyLabel.textColor = .secondaryLabelColor
+            emptyLabel.isBezeled = false
+            emptyLabel.drawsBackground = false
+            emptyLabel.isEditable = false
+            rightCol.addSubview(emptyLabel)
+        } else {
+            let listContentH = max(330.0, CGFloat(recents.count) * rowH + 10.0)
 
-        let listDocView = NSView(frame: NSRect(x: 0, y: 0, width: 388, height: listContentH))
-        scrollView.documentView = listDocView
-        rightCol.addSubview(scrollView)
+            let scrollView = NSScrollView(frame: NSRect(x: 20, y: 16, width: 388, height: 334))
+            scrollView.hasVerticalScroller = (CGFloat(recents.count) * rowH > 330.0)
+            scrollView.drawsBackground = false
+            scrollView.autohidesScrollers = true
 
-        var curY = listContentH - rowH - 6.0
-        for item in recents {
-            let rowBtn = TouchStageRecentRowButton(frame: NSRect(x: 4, y: curY, width: 380, height: rowH))
-            rowBtn.projectName = (item["name"] as? String) ?? "Untitled Project"
-            rowBtn.projectPath = (item["path"] as? String) ?? ""
-            rowBtn.projectOrientation = (item["orientation"] as? String) ?? "landscape"
-            rowBtn.target = self
-            rowBtn.action = #selector(onRecentRowClicked(_:))
-            listDocView.addSubview(rowBtn)
-            curY -= rowH
+            let listDocView = NSView(frame: NSRect(x: 0, y: 0, width: 388, height: listContentH))
+            scrollView.documentView = listDocView
+            rightCol.addSubview(scrollView)
+
+            var curY = listContentH - rowH - 6.0
+            for item in recents {
+                let rowBtn = TouchStageRecentRowButton(frame: NSRect(x: 4, y: curY, width: 380, height: rowH))
+                rowBtn.projectName = (item["name"] as? String) ?? "Untitled Project"
+                rowBtn.projectPath = (item["path"] as? String) ?? ""
+                rowBtn.projectOrientation = (item["orientation"] as? String) ?? "landscape"
+                rowBtn.target = self
+                rowBtn.action = #selector(onRecentRowClicked(_:))
+                listDocView.addSubview(rowBtn)
+                curY -= rowH
+            }
         }
 
         launcherSheetWindow = sheet

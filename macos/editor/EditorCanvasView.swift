@@ -30,6 +30,7 @@ public class EditorCanvasView: NSView {
     }
 
     public var snapToGrid: Bool = true
+    public var gridSize: CGFloat = 20.0
 
     private var isDragging: Bool = false
     private var isResizing: Bool = false
@@ -48,6 +49,7 @@ public class EditorCanvasView: NSView {
     private var clickedControlWasAlreadySelected: Bool = false
 
     private var floatingSnapBtn: NSButton!
+    private var floatingGridSizePopup: NSPopUpButton!
     private var copiedControls: [MidiControlModel] = []
     private var undoStack: [[MidiControlModel]] = []
     private var redoStack: [[MidiControlModel]] = []
@@ -75,7 +77,18 @@ public class EditorCanvasView: NSView {
         self.wantsLayer = true
         self.layer?.backgroundColor = AirColorWindowBg().cgColor
 
-        floatingSnapBtn = NSButton(frame: NSRect(x: 20, y: self.bounds.size.height - 48, width: 140, height: 30))
+        if let savedSize = UserDefaults.standard.object(forKey: "TouchStageGridSize") as? Double, savedSize > 0 {
+            gridSize = CGFloat(savedSize)
+        } else {
+            gridSize = 20.0
+        }
+        if UserDefaults.standard.object(forKey: "TouchStageSnapToGrid") != nil {
+            snapToGrid = UserDefaults.standard.bool(forKey: "TouchStageSnapToGrid")
+        } else {
+            snapToGrid = true
+        }
+
+        floatingSnapBtn = NSButton(frame: NSRect(x: 20, y: self.bounds.size.height - 48, width: 125, height: 30))
         floatingSnapBtn.autoresizingMask = [.maxXMargin, .minYMargin]
         floatingSnapBtn.bezelStyle = .texturedRounded
         floatingSnapBtn.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
@@ -83,14 +96,68 @@ public class EditorCanvasView: NSView {
         floatingSnapBtn.imagePosition = .imageLeading
         floatingSnapBtn.target = self
         floatingSnapBtn.action = #selector(toggleSnapToGrid(_:))
-        floatingSnapBtn.toolTip = "Toggle 20px Grid Snapping on Canvas"
+        floatingSnapBtn.toolTip = "Toggle Grid Snapping on Canvas (Click to toggle ON/OFF)"
         self.addSubview(floatingSnapBtn)
+
+        floatingGridSizePopup = NSPopUpButton(frame: NSRect(x: 152, y: self.bounds.size.height - 48, width: 84, height: 30), pullsDown: false)
+        floatingGridSizePopup.autoresizingMask = [.maxXMargin, .minYMargin]
+        floatingGridSizePopup.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        let sizes: [CGFloat] = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0, 50.0]
+        for s in sizes {
+            floatingGridSizePopup.addItem(withTitle: "\(Int(s)) px")
+            floatingGridSizePopup.lastItem?.representedObject = s
+        }
+        floatingGridSizePopup.target = self
+        floatingGridSizePopup.action = #selector(onGridSizeChanged(_:))
+        floatingGridSizePopup.toolTip = "Select Grid Snap Size"
+        self.addSubview(floatingGridSizePopup)
+
         updateSnapButtonAppearance()
     }
 
     private func updateSnapButtonAppearance() {
         floatingSnapBtn.state = snapToGrid ? .on : .off
-        floatingSnapBtn.title = snapToGrid ? "Snap: ON (20px)" : "Snap: OFF"
+        floatingSnapBtn.title = snapToGrid ? "Snap: ON (\(Int(gridSize))px)" : "Snap: OFF"
+        selectGridSizePopup(gridSize)
+    }
+
+    private func selectGridSizePopup(_ size: CGFloat) {
+        guard let popup = floatingGridSizePopup else { return }
+        for item in popup.itemArray {
+            if let s = item.representedObject as? CGFloat, abs(s - size) < 0.1 {
+                popup.select(item)
+                break
+            }
+        }
+    }
+
+    @objc public func toggleSnapToGrid(_ sender: Any?) {
+        snapToGrid = !snapToGrid
+        UserDefaults.standard.set(snapToGrid, forKey: "TouchStageSnapToGrid")
+        updateSnapButtonAppearance()
+        setNeedsDisplay(bounds)
+    }
+
+    @objc private func onGridSizeChanged(_ sender: Any?) {
+        if let s = floatingGridSizePopup.selectedItem?.representedObject as? CGFloat {
+            gridSize = s
+            snapToGrid = true
+            UserDefaults.standard.set(Double(s), forKey: "TouchStageGridSize")
+            UserDefaults.standard.set(snapToGrid, forKey: "TouchStageSnapToGrid")
+            updateSnapButtonAppearance()
+            setNeedsDisplay(bounds)
+        }
+    }
+
+    @objc private func onSelectGridSizeFromMenu(_ sender: NSMenuItem) {
+        if let s = sender.representedObject as? CGFloat {
+            gridSize = s
+            snapToGrid = true
+            UserDefaults.standard.set(Double(s), forKey: "TouchStageGridSize")
+            UserDefaults.standard.set(snapToGrid, forKey: "TouchStageSnapToGrid")
+            updateSnapButtonAppearance()
+            setNeedsDisplay(bounds)
+        }
     }
 
     public func selectAllControls() {
@@ -170,17 +237,17 @@ public class EditorCanvasView: NSView {
         ctx.translateBy(x: devX, y: devY)
         ctx.scaleBy(x: zoom, y: zoom)
 
-        // 20px Grid Dots
-        let gridAlpha: CGFloat = snapToGrid ? 0.20 : 0.10
+        // Dynamic Grid Dots
+        let gridAlpha: CGFloat = snapToGrid ? 0.20 : 0.08
         NSColor(calibratedWhite: 1.0, alpha: gridAlpha).setFill()
-        var gx: CGFloat = 20.0
+        var gx: CGFloat = gridSize
         while gx < devW {
-            var gy: CGFloat = 20.0
+            var gy: CGFloat = gridSize
             while gy < devH {
                 NSRect(x: gx - 1.0, y: gy - 1.0, width: 2.0, height: 2.0).fill()
-                gy += 20.0
+                gy += gridSize
             }
-            gx += 20.0
+            gx += gridSize
         }
 
         for ctrl in layout.controls {
@@ -194,6 +261,8 @@ public class EditorCanvasView: NSView {
                 drawXYPad(ctrl)
             } else if ctrl.type == "label" {
                 drawLabel(ctrl)
+            } else if ctrl.type == "display" {
+                drawDisplay(ctrl)
             }
         }
 
@@ -297,6 +366,15 @@ public class EditorCanvasView: NSView {
             ]
             let textRect = NSRect(x: pillRect.origin.x, y: pillRect.origin.y + (pillRect.size.height - fSize) / 2.0 - 1.0, width: pillRect.size.width, height: fSize + 4.0)
             (ctrl.label as NSString).draw(in: textRect, withAttributes: attr)
+
+            if !ctrl.targetPageId.isEmpty {
+                let linkAttr: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 9.5, weight: .bold),
+                    .foregroundColor: ctrl.accentColor.withAlphaComponent(0.85)
+                ]
+                let linkRect = NSRect(x: pillRect.maxX - 14.0, y: pillRect.origin.y + 2.0, width: 12.0, height: 12.0)
+                ("↗" as NSString).draw(in: linkRect, withAttributes: linkAttr)
+            }
         }
 
         let range = (ctrl.maxValue > ctrl.minValue) ? CGFloat(ctrl.maxValue - ctrl.minValue) : 127.0
@@ -424,7 +502,7 @@ public class EditorCanvasView: NSView {
             slitCorePath.fill()
         } else {
             // Vertical Fader
-            let slotW: CGFloat = 16.0
+            let slotW: CGFloat = max(14.0, min(26.0, trackRect.size.width * 0.22))
             let slotX = trackRect.midX - (slotW / 2.0)
             let slotRect = NSRect(x: slotX, y: trackRect.origin.y + 4.0, width: slotW, height: trackRect.size.height - 8.0)
 
@@ -446,7 +524,7 @@ public class EditorCanvasView: NSView {
                 rightTick.stroke()
             }
 
-            let slotPath = NSBezierPath(roundedRect: slotRect, xRadius: 6.0, yRadius: 6.0)
+            let slotPath = NSBezierPath(roundedRect: slotRect, xRadius: slotW / 2.5, yRadius: slotW / 2.5)
             NSColor(calibratedRed: 0.04, green: 0.045, blue: 0.06, alpha: 1.0).setFill()
             slotPath.fill()
             NSColor(calibratedWhite: 0.14, alpha: 1.0).setStroke()
@@ -455,7 +533,7 @@ public class EditorCanvasView: NSView {
 
             let travelH = slotRect.size.height - 12.0
             var beamBottom: CGFloat = 0, beamTop: CGFloat = 0
-            let thumbW = min(frame.size.width + 4.0, 60.0)
+            let thumbW = max(36.0, trackRect.size.width - 16.0)
             let thumbH: CGFloat = 28.0
             let thumbX = trackRect.midX - (thumbW / 2.0)
             var thumbY: CGFloat = 0
@@ -765,27 +843,35 @@ public class EditorCanvasView: NSView {
 
         // 5. Draw Pill Label
         if hasLabel {
-            let pill = NSBezierPath(roundedRect: pillRect, xRadius: 13.0, yRadius: 13.0)
-            NSColor(calibratedRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0).setFill()
-            pill.fill()
+            if ctrl.hasBackground {
+                let pill = NSBezierPath(roundedRect: pillRect, xRadius: 8.0, yRadius: 8.0)
+                NSColor(calibratedRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0).setFill()
+                pill.fill()
+                NSColor(calibratedWhite: 0.18, alpha: 1.0).setStroke()
+                pill.lineWidth = 1.0
+                pill.stroke()
+            }
 
-            ctx.saveGState()
-            ctx.setShadow(offset: .zero, blur: 8.0, color: ctrl.accentColor.withAlphaComponent(0.6).cgColor)
-            ctrl.accentColor.setStroke()
-            pill.lineWidth = 1.2
-            pill.stroke()
-            ctx.restoreGState()
-
+            let fSize: CGFloat = (ctrl.fontSize > 0) ? ctrl.fontSize : 11.0
             let style = NSMutableParagraphStyle()
             style.alignment = .center
             let attr: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11.0, weight: .bold),
+                .font: NSFont.systemFont(ofSize: fSize, weight: .bold),
                 .foregroundColor: NSColor.white,
                 .paragraphStyle: style,
                 .kern: 1.2
             ]
-            let textRect = NSRect(x: pillRect.origin.x, y: pillRect.origin.y + 5.0, width: pillRect.size.width, height: 16.0)
+            let textRect = NSRect(x: pillRect.origin.x, y: pillRect.origin.y + (pillRect.size.height - fSize) / 2.0 - 1.0, width: pillRect.size.width, height: fSize + 4.0)
             (ctrl.label as NSString).draw(in: textRect, withAttributes: attr)
+
+            if !ctrl.targetPageId.isEmpty {
+                let linkAttr: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 9.5, weight: .bold),
+                    .foregroundColor: ctrl.accentColor.withAlphaComponent(0.85)
+                ]
+                let linkRect = NSRect(x: pillRect.maxX - 14.0, y: pillRect.origin.y + 2.0, width: 12.0, height: 12.0)
+                ("↗" as NSString).draw(in: linkRect, withAttributes: linkAttr)
+            }
         }
     }
 
@@ -801,43 +887,53 @@ public class EditorCanvasView: NSView {
             let y = r.midY - size / 2.0
             let outerRect = NSRect(x: x, y: y, width: size, height: size)
 
-            let well = NSBezierPath(ovalIn: outerRect)
-            NSColor(calibratedRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0).setFill()
-            well.fill()
-            NSColor(calibratedWhite: 0.16, alpha: 1.0).setStroke()
-            well.lineWidth = 1.0
-            well.stroke()
-
-            let ringRect = outerRect.insetBy(dx: 4.0, dy: 4.0)
+            let ringRect = outerRect.insetBy(dx: 1.5, dy: 1.5)
             let ring = NSBezierPath(ovalIn: ringRect)
 
             ctx.saveGState()
-            let glowRadius: CGFloat = isLit ? 14.0 : 6.0
-            ctx.setShadow(offset: .zero, blur: glowRadius, color: ctrl.accentColor.withAlphaComponent(isLit ? 0.95 : 0.45).cgColor)
+            let glowRadius: CGFloat = isLit ? 16.0 : 8.0
+            let glowAlpha: CGFloat = isLit ? 0.85 : 0.35
+            ctx.setShadow(offset: .zero, blur: glowRadius, color: ctrl.accentColor.withAlphaComponent(glowAlpha).cgColor)
+
+            let faceRect = ringRect.insetBy(dx: 2.0, dy: 2.0)
+            let face = NSBezierPath(ovalIn: faceRect)
+            let baseColor = (HexFromColor(ctrl.color) == HexFromColor(ctrl.accentColor)) ? DeriveDarkBaseColor(from: ctrl.accentColor) : ctrl.color
+            if isLit {
+                let glassGrad = NSGradient(starting: ctrl.accentColor.withAlphaComponent(0.85),
+                                           ending: baseColor.withAlphaComponent(0.95))
+                glassGrad?.draw(in: face, relativeCenterPosition: NSPoint(x: 0.0, y: 0.1))
+            } else {
+                let darkGrad = NSGradient(colorsAndLocations:
+                    (NSColor(calibratedRed: 0.16, green: 0.17, blue: 0.21, alpha: 1.0), 0.0),
+                    (NSColor(calibratedRed: 0.10, green: 0.11, blue: 0.14, alpha: 1.0), 0.6),
+                    (NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.10, alpha: 1.0), 1.0))
+                darkGrad?.draw(in: face, angle: -90.0)
+            }
+
             ctrl.accentColor.setStroke()
             ring.lineWidth = 3.0
             ring.stroke()
             ctx.restoreGState()
 
-            let faceRect = ringRect.insetBy(dx: 4.0, dy: 4.0)
-            let face = NSBezierPath(ovalIn: faceRect)
-            let baseColor = (HexFromColor(ctrl.color) == HexFromColor(ctrl.accentColor)) ? DeriveDarkBaseColor(from: ctrl.accentColor) : ctrl.color
-            if isLit {
-                baseColor.setFill()
-                face.fill()
-                let glowGrad = NSGradient(starting: ctrl.accentColor.withAlphaComponent(0.80),
-                                          ending: baseColor.withAlphaComponent(0.95))
-                glowGrad?.draw(in: face, relativeCenterPosition: .zero)
-            } else {
-                let dialGrad = NSGradient(colorsAndLocations:
-                    (NSColor(calibratedRed: 0.22, green: 0.24, blue: 0.29, alpha: 1.0), 0.0),
-                    (NSColor(calibratedRed: 0.12, green: 0.13, blue: 0.16, alpha: 1.0), 0.5),
-                    (NSColor(calibratedRed: 0.08, green: 0.09, blue: 0.11, alpha: 1.0), 1.0))
-                dialGrad?.draw(in: face, angle: -45.0)
+            let innerHighlightRect = ringRect.insetBy(dx: 2.0, dy: 2.0)
+            let innerHighlight = NSBezierPath(ovalIn: innerHighlightRect)
+            NSColor(calibratedWhite: 1.0, alpha: isLit ? 0.35 : 0.08).setStroke()
+            innerHighlight.lineWidth = 1.0
+            innerHighlight.stroke()
+
+            if !ctrl.label.isEmpty {
+                let fSize: CGFloat = (ctrl.fontSize > 0) ? ctrl.fontSize : 13.0
+                let style = NSMutableParagraphStyle()
+                style.alignment = .center
+                let attr: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: fSize, weight: .bold),
+                    .foregroundColor: isLit ? NSColor.white : ctrl.accentColor.withAlphaComponent(0.9),
+                    .paragraphStyle: style,
+                    .kern: 1.2
+                ]
+                let textRect = NSRect(x: faceRect.origin.x + 2.0, y: faceRect.midY - (fSize + 4.0) / 2.0, width: faceRect.size.width - 4.0, height: fSize + 6.0)
+                (ctrl.label as NSString).draw(in: textRect, withAttributes: attr)
             }
-            NSColor(calibratedWhite: 0.28, alpha: 0.8).setStroke()
-            face.lineWidth = 1.0
-            face.stroke()
         } else {
             let cornerR: CGFloat = 12.0
             let padRect = r
@@ -886,6 +982,15 @@ public class EditorCanvasView: NSView {
                 let textRect = NSRect(x: r.origin.x + 4.0, y: r.midY - (fSize + 4.0) / 2.0, width: r.size.width - 8.0, height: fSize + 6.0)
                 (ctrl.label as NSString).draw(in: textRect, withAttributes: attr)
             }
+        }
+
+        if !ctrl.targetPageId.isEmpty {
+            let linkAttr: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 10.0, weight: .bold),
+                .foregroundColor: isLit ? NSColor.white.withAlphaComponent(0.9) : ctrl.accentColor.withAlphaComponent(0.85)
+            ]
+            let linkRect = NSRect(x: r.maxX - 16.0, y: r.origin.y + 4.0, width: 14.0, height: 12.0)
+            ("↗" as NSString).draw(in: linkRect, withAttributes: linkAttr)
         }
     }
 
@@ -943,31 +1048,148 @@ public class EditorCanvasView: NSView {
     private func drawLabel(_ ctrl: MidiControlModel) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let r = ctrl.frame
+        let isFilled = (ctrl.backgroundStyle == "filled")
+        let isVertical = (ctrl.orientation == "vertical")
 
         if ctrl.hasBackground {
-            let pill = NSBezierPath(roundedRect: r, xRadius: 13.0, yRadius: 13.0)
-            NSColor(calibratedRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0).setFill()
-            pill.fill()
+            let pillRadius = min(13.0, min(r.size.width, r.size.height) / 2.0)
+            let pill = NSBezierPath(roundedRect: r, xRadius: pillRadius, yRadius: pillRadius)
 
-            ctx.saveGState()
-            ctx.setShadow(offset: .zero, blur: 8.0, color: ctrl.accentColor.withAlphaComponent(0.6).cgColor)
-            ctrl.accentColor.setStroke()
-            pill.lineWidth = 1.2
-            pill.stroke()
-            ctx.restoreGState()
+            if isFilled {
+                ctx.saveGState()
+                ctx.setShadow(offset: .zero, blur: 10.0, color: ctrl.accentColor.withAlphaComponent(0.5).cgColor)
+                ctrl.accentColor.setFill()
+                pill.fill()
+                ctx.restoreGState()
+            } else {
+                NSColor(calibratedRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0).setFill()
+                pill.fill()
+
+                ctx.saveGState()
+                ctx.setShadow(offset: .zero, blur: 8.0, color: ctrl.accentColor.withAlphaComponent(0.6).cgColor)
+                ctrl.accentColor.setStroke()
+                pill.lineWidth = 1.2
+                pill.stroke()
+                ctx.restoreGState()
+            }
         }
 
         let fSize: CGFloat = (ctrl.fontSize > 0) ? ctrl.fontSize : 12.0
         let style = NSMutableParagraphStyle()
         style.alignment = .center
+
+        var textColor = NSColor.white
+        if ctrl.hasBackground && isFilled {
+            if let rgb = ctrl.accentColor.usingColorSpace(.sRGB) {
+                let lum = 0.299 * rgb.redComponent + 0.587 * rgb.greenComponent + 0.114 * rgb.blueComponent
+                textColor = (lum > 0.6) ? NSColor(calibratedWhite: 0.06, alpha: 1.0) : NSColor.white
+            }
+        }
+
         let attr: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fSize, weight: .bold),
-            .foregroundColor: NSColor.white,
+            .foregroundColor: textColor,
             .paragraphStyle: style,
             .kern: 1.4
         ]
-        let textRect = NSRect(x: r.origin.x, y: r.midY - (fSize + 4.0) / 2.0, width: r.size.width, height: fSize + 6.0)
-        (ctrl.label as NSString).draw(in: textRect, withAttributes: attr)
+
+        if isVertical {
+            ctx.saveGState()
+            let cx = r.midX
+            let cy = r.midY
+            ctx.translateBy(x: cx, y: cy)
+            ctx.rotate(by: -.pi / 2.0)
+            let textRect = NSRect(x: -r.height / 2.0 + 4.0, y: -(fSize + 4.0) / 2.0, width: r.height - 8.0, height: fSize + 6.0)
+            (ctrl.label as NSString).draw(in: textRect, withAttributes: attr)
+            ctx.restoreGState()
+        } else {
+            let textRect = NSRect(x: r.origin.x, y: r.midY - (fSize + 4.0) / 2.0, width: r.size.width, height: fSize + 6.0)
+            (ctrl.label as NSString).draw(in: textRect, withAttributes: attr)
+        }
+
+        if !ctrl.targetPageId.isEmpty {
+            let linkAttr: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 10.0, weight: .bold),
+                .foregroundColor: (ctrl.hasBackground && isFilled) ? textColor.withAlphaComponent(0.8) : ctrl.accentColor.withAlphaComponent(0.85)
+            ]
+            let linkRect = isVertical ?
+                NSRect(x: r.midX - 5.0, y: r.origin.y + 4.0, width: 12.0, height: 12.0) :
+                NSRect(x: r.maxX - 16.0, y: r.origin.y + 3.0, width: 14.0, height: 12.0)
+            ("↗" as NSString).draw(in: linkRect, withAttributes: linkAttr)
+        }
+    }
+
+    private func drawDisplay(_ ctrl: MidiControlModel) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let r = ctrl.frame
+
+        // 1. Sleek Card Background
+        if ctrl.hasBackground {
+            let card = NSBezierPath(roundedRect: r, xRadius: 10.0, yRadius: 10.0)
+            NSColor(calibratedRed: 0.07, green: 0.08, blue: 0.11, alpha: 0.95).setFill()
+            card.fill()
+
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: 8.0, color: ctrl.accentColor.withAlphaComponent(0.4).cgColor)
+            ctrl.accentColor.withAlphaComponent(0.6).setStroke()
+            card.lineWidth = 1.2
+            card.stroke()
+            ctx.restoreGState()
+        }
+
+        // 2. Beat Indicator LED (Top-Right)
+        let ledR: CGFloat = 4.5
+        let ledX = r.maxX - ledR - 10.0
+        let ledY = r.origin.y + 12.0
+        let ledRect = NSRect(x: ledX - ledR, y: ledY - ledR, width: ledR * 2.0, height: ledR * 2.0)
+        let ledPath = NSBezierPath(ovalIn: ledRect)
+        ctrl.accentColor.setFill()
+        ledPath.fill()
+
+        ctx.saveGState()
+        ctx.setShadow(offset: .zero, blur: 6.0, color: ctrl.accentColor.cgColor)
+        ctrl.accentColor.setFill()
+        ledPath.fill()
+        ctx.restoreGState()
+
+        // 3. Label (Top or Bottom)
+        let isBottom = (ctrl.labelPosition == "bottom")
+        if ctrl.hasLabel && !ctrl.label.isEmpty {
+            let pStyle = NSMutableParagraphStyle()
+            pStyle.alignment = .left
+            let labelAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 10.0, weight: .bold),
+                .foregroundColor: NSColor(calibratedWhite: 0.65, alpha: 1.0),
+                .paragraphStyle: pStyle,
+                .kern: 1.0
+            ]
+            let lblStr = ctrl.label.uppercased() as NSString
+            let labelY = isBottom ? (r.maxY - 18.0) : (r.origin.y + 8.0)
+            lblStr.draw(at: NSPoint(x: r.origin.x + 10.0, y: labelY), withAttributes: labelAttrs)
+        }
+
+        // 4. Large Digital Readout
+        let valStr: String
+        if ctrl.displayMode == "cc" {
+            let range = Double(max(1, ctrl.maxValue - ctrl.minValue))
+            let calculatedVal = Double(ctrl.minValue) + (ctrl.value / 127.0) * range
+            valStr = "\(Int(round(calculatedVal)))"
+        } else {
+            valStr = "120.0"
+        }
+
+        let fSize: CGFloat = (ctrl.fontSize > 0) ? ctrl.fontSize : 24.0
+        let valStyle = NSMutableParagraphStyle()
+        valStyle.alignment = .center
+        let valAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: fSize, weight: .black),
+            .foregroundColor: NSColor.white,
+            .paragraphStyle: valStyle
+        ]
+        let textSize = (valStr as NSString).size(withAttributes: valAttrs)
+        let yShift: CGFloat = ctrl.hasLabel ? (isBottom ? -7.0 : 7.0) : 0.0
+        let valTextRect = NSRect(x: r.origin.x + 6.0, y: r.midY - (textSize.height / 2.0) + yShift, width: r.size.width - 12.0, height: textSize.height)
+        (valStr as NSString).draw(in: valTextRect, withAttributes: valAttrs)
     }
 
     private func drawSelection(for ctrl: MidiControlModel, isPrimary: Bool) {
@@ -1065,13 +1287,13 @@ public class EditorCanvasView: NSView {
             if !selectedControls.isEmpty {
                 pushUndoSnapshot()
 
-                var step: CGFloat = 20.0
+                var step: CGFloat = gridSize
                 if event.modifierFlags.contains(.option) {
                     step = 1.0
                 } else if !snapToGrid {
                     step = event.modifierFlags.contains(.shift) ? 10.0 : 5.0
                 } else if event.modifierFlags.contains(.shift) {
-                    step = 40.0
+                    step = gridSize * 2.0
                 }
 
                 var dx: CGFloat = 0.0
@@ -1086,8 +1308,8 @@ public class EditorCanvasView: NSView {
                     r.origin.x += dx
                     r.origin.y += dy
                     if snapToGrid && !event.modifierFlags.contains(.option) {
-                        r.origin.x = round(r.origin.x / 20.0) * 20.0
-                        r.origin.y = round(r.origin.y / 20.0) * 20.0
+                        r.origin.x = round(r.origin.x / gridSize) * gridSize
+                        r.origin.y = round(r.origin.y / gridSize) * gridSize
                     }
                     ctrl.frame = r
                     delegate?.canvasDidChangeControl(ctrl)
@@ -1129,13 +1351,14 @@ public class EditorCanvasView: NSView {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        CloseColorPanelIfOpen()
         self.window?.makeFirstResponder(self)
         let mousePos = canvasPoint(from: event)
         let flags = event.modifierFlags
         let isMultiSelect = flags.contains(.command) || flags.contains(.shift)
 
-        // Check resize handles if single control is selected
-        if selectedControls.count == 1, let selCtrl = selectedControl {
+        // Check resize handles if controls are selected
+        if !selectedControls.isEmpty, let selCtrl = selectedControl {
             let devW = layout.canvasWidth > 0 ? layout.canvasWidth : 920.0
             let devH = layout.canvasHeight > 0 ? layout.canvasHeight : 460.0
             let availW = max(100.0, self.bounds.size.width - 60.0)
@@ -1149,21 +1372,23 @@ public class EditorCanvasView: NSView {
             let brHandle = NSRect(x: r.maxX - hArea / 2.0, y: r.maxY - hArea / 2.0, width: hArea, height: hArea)
             let blHandle = NSRect(x: r.minX - hArea / 2.0, y: r.maxY - hArea / 2.0, width: hArea, height: hArea)
 
-            if tlHandle.contains(mousePos) {
-                isResizing = true; resizeCorner = 1; dragStartMouse = mousePos; initialControlFrame = r
-                mouseDownSnapshot = currentControlsSnapshot(); hasDraggedOrResized = false
-                return
-            } else if trHandle.contains(mousePos) {
-                isResizing = true; resizeCorner = 2; dragStartMouse = mousePos; initialControlFrame = r
-                mouseDownSnapshot = currentControlsSnapshot(); hasDraggedOrResized = false
-                return
-            } else if brHandle.contains(mousePos) {
-                isResizing = true; resizeCorner = 3; dragStartMouse = mousePos; initialControlFrame = r
-                mouseDownSnapshot = currentControlsSnapshot(); hasDraggedOrResized = false
-                return
-            } else if blHandle.contains(mousePos) {
-                isResizing = true; resizeCorner = 4; dragStartMouse = mousePos; initialControlFrame = r
-                mouseDownSnapshot = currentControlsSnapshot(); hasDraggedOrResized = false
+            var corner = 0
+            if tlHandle.contains(mousePos) { corner = 1 }
+            else if trHandle.contains(mousePos) { corner = 2 }
+            else if brHandle.contains(mousePos) { corner = 3 }
+            else if blHandle.contains(mousePos) { corner = 4 }
+
+            if corner > 0 {
+                isResizing = true
+                resizeCorner = corner
+                dragStartMouse = mousePos
+                initialControlFrame = r
+                initialFramesByControlId.removeAll()
+                for c in selectedControls {
+                    initialFramesByControlId[c.controlId] = c.frame
+                }
+                mouseDownSnapshot = currentControlsSnapshot()
+                hasDraggedOrResized = false
                 return
             }
         }
@@ -1246,42 +1471,64 @@ public class EditorCanvasView: NSView {
                 newX = min(initF.origin.x + dx, initF.maxX - minW)
                 newY = min(initF.origin.y + dy, initF.maxY - minH)
                 if snapToGrid && !event.modifierFlags.contains(.option) {
-                    newX = round(newX / 20.0) * 20.0
-                    newY = round(newY / 20.0) * 20.0
+                    newX = round(newX / gridSize) * gridSize
+                    newY = round(newY / gridSize) * gridSize
                 }
                 newW = initF.maxX - newX
                 newH = initF.maxY - newY
             } else if resizeCorner == 2 { // Top-Right
                 newY = min(initF.origin.y + dy, initF.maxY - minH)
                 if snapToGrid && !event.modifierFlags.contains(.option) {
-                    newY = round(newY / 20.0) * 20.0
+                    newY = round(newY / gridSize) * gridSize
                 }
                 newH = initF.maxY - newY
                 newW = max(minW, initF.size.width + dx)
                 if snapToGrid && !event.modifierFlags.contains(.option) {
-                    newW = round(newW / 20.0) * 20.0
+                    newW = round(newW / gridSize) * gridSize
                 }
             } else if resizeCorner == 3 { // Bottom-Right
                 newW = max(minW, initF.size.width + dx)
                 newH = max(minH, initF.size.height + dy)
                 if snapToGrid && !event.modifierFlags.contains(.option) {
-                    newW = round(newW / 20.0) * 20.0
-                    newH = round(newH / 20.0) * 20.0
+                    newW = round(newW / gridSize) * gridSize
+                    newH = round(newH / gridSize) * gridSize
                 }
             } else if resizeCorner == 4 { // Bottom-Left
                 newX = min(initF.origin.x + dx, initF.maxX - minW)
                 if snapToGrid && !event.modifierFlags.contains(.option) {
-                    newX = round(newX / 20.0) * 20.0
+                    newX = round(newX / gridSize) * gridSize
                 }
                 newW = initF.maxX - newX
                 newH = max(minH, initF.size.height + dy)
                 if snapToGrid && !event.modifierFlags.contains(.option) {
-                    newH = round(newH / 20.0) * 20.0
+                    newH = round(newH / gridSize) * gridSize
                 }
             }
 
-            selCtrl.frame = NSRect(x: newX, y: newY, width: newW, height: newH)
-            delegate?.canvasDidChangeControl(selCtrl)
+            let deltaW = newW - initF.size.width
+            let deltaH = newH - initF.size.height
+
+            if selectedControls.count > 1 {
+                for c in selectedControls {
+                    if let orig = initialFramesByControlId[c.controlId] {
+                        let finalW = max(minW, orig.size.width + deltaW)
+                        let finalH = max(minH, orig.size.height + deltaH)
+                        var finalX = orig.origin.x
+                        var finalY = orig.origin.y
+                        if resizeCorner == 1 || resizeCorner == 4 {
+                            finalX = orig.origin.x - deltaW
+                        }
+                        if resizeCorner == 1 || resizeCorner == 2 {
+                            finalY = orig.origin.y - deltaH
+                        }
+                        c.frame = NSRect(x: finalX, y: finalY, width: finalW, height: finalH)
+                        delegate?.canvasDidChangeControl(c)
+                    }
+                }
+            } else {
+                selCtrl.frame = NSRect(x: newX, y: newY, width: newW, height: newH)
+                delegate?.canvasDidChangeControl(selCtrl)
+            }
             setNeedsDisplay(bounds)
         } else if isDragging && !selectedControls.isEmpty {
             if !hasDraggedOrResized {
@@ -1293,8 +1540,8 @@ public class EditorCanvasView: NSView {
             var deltaY = mousePos.y - dragStartMouse.y
 
             if snapToGrid && !event.modifierFlags.contains(.option) {
-                deltaX = round(deltaX / 20.0) * 20.0
-                deltaY = round(deltaY / 20.0) * 20.0
+                deltaX = round(deltaX / gridSize) * gridSize
+                deltaY = round(deltaY / gridSize) * gridSize
             }
 
             for ctrl in selectedControls {
@@ -1355,6 +1602,7 @@ public class EditorCanvasView: NSView {
     // MARK: - Context Menu
 
     public override func menu(for event: NSEvent) -> NSMenu? {
+        CloseColorPanelIfOpen()
         let mousePos = canvasPoint(from: event)
         lastRightClickPoint = mousePos
 
@@ -1407,13 +1655,32 @@ public class EditorCanvasView: NSView {
         itemLbl.target = self
         menu.addItem(itemLbl)
 
+        let itemDisplay = NSMenuItem(title: "Add BPM / Value Display", action: #selector(onAddDisplay(_:)), keyEquivalent: "")
+        itemDisplay.image = AirSymbol("metronome", 13.0)
+        itemDisplay.target = self
+        menu.addItem(itemDisplay)
+
         menu.addItem(NSMenuItem.separator())
 
-        let itemSnap = NSMenuItem(title: "Snap to Grid (20px)", action: #selector(toggleSnapToGrid(_:)), keyEquivalent: "")
+        let itemSnap = NSMenuItem(title: "Snap to Grid (\(Int(gridSize))px)", action: #selector(toggleSnapToGrid(_:)), keyEquivalent: "")
         itemSnap.state = snapToGrid ? .on : .off
         itemSnap.image = AirSymbol("grid", 13.0)
         itemSnap.target = self
         menu.addItem(itemSnap)
+
+        let gridSubmenu = NSMenu(title: "Grid Size")
+        let sizes: [CGFloat] = [5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0, 50.0]
+        for s in sizes {
+            let item = NSMenuItem(title: "\(Int(s)) px", action: #selector(onSelectGridSizeFromMenu(_:)), keyEquivalent: "")
+            item.representedObject = s
+            item.state = (abs(gridSize - s) < 0.1) ? .on : .off
+            item.target = self
+            gridSubmenu.addItem(item)
+        }
+        let gridMenuItem = NSMenuItem(title: "Grid Size", action: nil, keyEquivalent: "")
+        gridMenuItem.submenu = gridSubmenu
+        gridMenuItem.image = AirSymbol("ruler", 13.0)
+        menu.addItem(gridMenuItem)
 
         if !selectedControls.isEmpty {
             menu.addItem(NSMenuItem.separator())
@@ -1481,13 +1748,8 @@ public class EditorCanvasView: NSView {
     @objc private func onAddKnob(_ sender: Any?) { addControl(ofType: "knob", orientation: "vertical", at: lastRightClickPoint) }
     @objc private func onAddButton(_ sender: Any?) { addControl(ofType: "button", orientation: "vertical", at: lastRightClickPoint) }
     @objc private func onAddXYPad(_ sender: Any?) { addControl(ofType: "xypad", orientation: "vertical", at: lastRightClickPoint) }
-    @objc private func onAddLabel(_ sender: Any?) { addControl(ofType: "label", orientation: "vertical", at: lastRightClickPoint) }
-
-    @objc public func toggleSnapToGrid(_ sender: Any?) {
-        snapToGrid = !snapToGrid
-        updateSnapButtonAppearance()
-        setNeedsDisplay(bounds)
-    }
+    @objc private func onAddLabel(_ sender: Any?) { addControl(ofType: "label", orientation: "horizontal", at: lastRightClickPoint) }
+    @objc private func onAddDisplay(_ sender: Any?) { addControl(ofType: "display", orientation: "vertical", at: lastRightClickPoint) }
 
     // MARK: - Undo & Redo
 
@@ -1549,18 +1811,33 @@ public class EditorCanvasView: NSView {
         copiedControls = selectedControls.map { ($0.copy() as! MidiControlModel) }
     }
 
+    private func nextAvailableMidiNumber(forMidiType type: String, channel: Int) -> Int {
+        var used = Set<Int>()
+        for c in layout.controls {
+            if c.midiChannel == channel && c.midiType == type {
+                used.insert(c.midiNumber)
+            }
+        }
+        let start = (type == "note") ? 60 : 11
+        var candidate = start
+        while used.contains(candidate) && candidate < 127 {
+            candidate += 1
+        }
+        return candidate
+    }
+
     @objc public func pasteCopied() {
         guard !copiedControls.isEmpty else { return }
         pushUndoSnapshot()
 
-        let offset: CGFloat = snapToGrid ? 20.0 : 15.0
+        let offset: CGFloat = snapToGrid ? gridSize : 15.0
         var newSelection: [MidiControlModel] = []
         for orig in copiedControls {
             let copy = orig.copy() as! MidiControlModel
             copy.controlId = String(format: "%@_%u", copy.type, arc4random() % 10000)
             copy.label = "\(copy.label) Copy"
             copy.frame = copy.frame.offsetBy(dx: offset, dy: offset)
-            if copy.midiNumber < 127 { copy.midiNumber += 1 }
+            copy.midiNumber = nextAvailableMidiNumber(forMidiType: copy.midiType, channel: copy.midiChannel)
             layout.controls.append(copy)
             newSelection.append(copy)
         }
@@ -1575,13 +1852,14 @@ public class EditorCanvasView: NSView {
         let devW = layout.canvasWidth > 0 ? layout.canvasWidth : 920.0
         let devH = layout.canvasHeight > 0 ? layout.canvasHeight : 460.0
 
-        let w: CGFloat = (t == "fader") ? 78 : (t == "knob") ? 130 : (t == "button") ? 110 : (t == "xypad") ? 180 : 150
-        let h: CGFloat = (t == "fader") ? 380 : (t == "knob") ? 150 : (t == "button") ? 110 : (t == "xypad") ? 180 : 36
+        let w: CGFloat = (t == "fader") ? 80 : (t == "knob") ? 80 : (t == "button") ? 80 : (t == "display") ? 140 : (t == "xypad") ? 180 : 120
+        let h: CGFloat = (t == "fader") ? 220 : (t == "knob") ? 80 : (t == "button") ? 60 : (t == "display") ? 70 : (t == "xypad") ? 180 : 36
 
-        let cx = (devW - w) / 2.0 + CGFloat(layout.controls.count % 5) * 20.0
-        let cy = (devH - h) / 2.0 + CGFloat(layout.controls.count % 4) * 20.0
+        let cx = (devW - w) / 2.0 + CGFloat(layout.controls.count % 5) * gridSize
+        let cy = (devH - h) / 2.0 + CGFloat(layout.controls.count % 4) * gridSize
 
-        addControl(ofType: t, orientation: "vertical", at: NSPoint(x: cx, y: cy))
+        let defOrient = (t == "label") ? "horizontal" : "vertical"
+        addControl(ofType: t, orientation: defOrient, at: NSPoint(x: cx, y: cy))
     }
 
     public func addControl(ofType type: String, orientation: String = "vertical", at pt: NSPoint) {
@@ -1597,21 +1875,26 @@ public class EditorCanvasView: NSView {
         m.label = "\(t.uppercased()) \(layout.controls.count + 1)"
 
         let isHoriz = (m.orientation == "horizontal")
-        let w: CGFloat = (t == "fader") ? (isHoriz ? 320 : 78) : (t == "knob") ? 130 : (t == "button") ? 110 : (t == "xypad") ? 180 : 150
-        let h: CGFloat = (t == "fader") ? (isHoriz ? 78 : 380) : (t == "knob") ? 150 : (t == "button") ? 110 : (t == "xypad") ? 180 : 36
+        let w: CGFloat = (t == "fader") ? (isHoriz ? 240 : 80) : (t == "knob") ? 80 : (t == "button") ? 80 : (t == "display") ? 140 : (t == "xypad") ? 180 : (isHoriz ? 120 : 36)
+        let h: CGFloat = (t == "fader") ? (isHoriz ? 70 : 220) : (t == "knob") ? 80 : (t == "button") ? 60 : (t == "display") ? 70 : (t == "xypad") ? 180 : (isHoriz ? 36 : 120)
 
-        let snappedX = round(pt.x / 20.0) * 20.0
-        let snappedY = round(pt.y / 20.0) * 20.0
-        m.frame = NSRect(x: snappedX, y: snappedY, width: w, height: h)
+        let devW = layout.canvasWidth > 0 ? layout.canvasWidth : 920.0
+        let devH = layout.canvasHeight > 0 ? layout.canvasHeight : 460.0
+        var posX = snapToGrid ? (round((pt.x - w / 2.0) / gridSize) * gridSize) : (pt.x - w / 2.0)
+        var posY = snapToGrid ? (round((pt.y - h / 2.0) / gridSize) * gridSize) : (pt.y - h / 2.0)
+        posX = max(10.0, min(devW - w - 10.0, posX))
+        posY = max(10.0, min(devH - h - 10.0, posY))
+        m.frame = NSRect(x: posX, y: posY, width: w, height: h)
 
         m.color = NSColor(calibratedRed: 0.0, green: 0.45, blue: 0.5, alpha: 1.0)
         m.accentColor = NSColor(calibratedRed: 0.0, green: 0.8, blue: 1.0, alpha: 1.0)
         m.midiChannel = 1
         m.midiType = (t == "button") ? "note" : "cc"
-        m.midiNumber = 20 + layout.controls.count
+        m.midiNumber = nextAvailableMidiNumber(forMidiType: m.midiType, channel: m.midiChannel)
         m.minValue = 0
         m.maxValue = 127
-        m.value = 64
+        m.mode = (t == "button") ? "toggle" : "momentary"
+        m.value = (t == "button") ? 127 : ((t == "fader" || t == "knob") ? 64 : ((t == "display") ? 120 : 0))
 
         if t == "fader" {
             m.hasLabel = true
@@ -1620,9 +1903,23 @@ public class EditorCanvasView: NSView {
         } else if t == "knob" {
             m.hasLabel = true
             m.labelPosition = "bottom"
+            m.hasBackground = true
         } else if t == "button" {
             m.shape = "square"
+            m.mode = "toggle" // Default to Toggle so buttons stay activated in DAW!
+        } else if t == "display" {
+            m.label = "BPM"
+            m.hasLabel = true
+            m.labelPosition = "top"
+            m.displayMode = "bpm"
+            m.hasBackground = true
+            m.midiType = "note"
+            m.midiChannel = 1
+            m.midiNumber = nextAvailableMidiNumber(forMidiType: "note", channel: 1)
             m.mode = "momentary"
+            m.minValue = 0
+            m.maxValue = 127
+            m.fontSize = 28.0
         }
 
         layout.controls.append(m)
@@ -1635,7 +1932,7 @@ public class EditorCanvasView: NSView {
         guard !selectedControls.isEmpty else { return }
         pushUndoSnapshot()
 
-        let offset: CGFloat = snapToGrid ? 20.0 : 15.0
+        let offset: CGFloat = snapToGrid ? gridSize : 15.0
         var newSelection: [MidiControlModel] = []
 
         for orig in selectedControls {
@@ -1643,7 +1940,7 @@ public class EditorCanvasView: NSView {
             copy.controlId = String(format: "%@_%u", copy.type, arc4random() % 10000)
             copy.label = "\(copy.label) Copy"
             copy.frame = copy.frame.offsetBy(dx: offset, dy: offset)
-            if copy.midiNumber < 127 { copy.midiNumber += 1 }
+            copy.midiNumber = nextAvailableMidiNumber(forMidiType: copy.midiType, channel: copy.midiChannel)
 
             layout.controls.append(copy)
             newSelection.append(copy)
