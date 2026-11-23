@@ -104,7 +104,7 @@ public class NetworkDiscovery {
                 var sinAddr = clientAddr.sin_addr
                 inet_ntop(AF_INET, &sinAddr, &ipStr, socklen_t(INET_ADDRSTRLEN))
                 let senderIp = String(cString: ipStr)
-                let resolvedIp = (json["ip"] as? String) ?? senderIp
+                let resolvedIp = (json["host"] as? String) ?? (json["ip"] as? String) ?? senderIp
 
                 let server = DiscoveredServer(name: name, ip: resolvedIp, port: port, lastSeen: Date())
                 DispatchQueue.main.async { [weak self] in
@@ -117,6 +117,12 @@ public class NetworkDiscovery {
     private func handleDiscoveredServer(_ server: DiscoveredServer) {
         servers[server.id] = server
         notifyDelegate()
+
+        // Auto-connect if not currently connected
+        if !NetworkManager.shared.isConnected {
+            NSLog("[TouchStage iOS] Auto-connecting to discovered Bridge: %@ (%@:%d)", server.name, server.ip, server.port)
+            NetworkManager.shared.connect(to: server.ip, port: server.port, name: server.name)
+        }
     }
 
     private func purgeStaleServers() {

@@ -8,12 +8,35 @@ public protocol MidiSurfaceViewDelegate: AnyObject {
 public class MidiSurfaceView: UIView {
     public var layout: LayoutModel = LayoutModel.presetStage8Track() {
         didSet {
+            setNeedsLayout()
             setNeedsDisplay()
         }
     }
 
     public weak var delegate: MidiSurfaceViewDelegate?
     public var hapticsEnabled: Bool = true
+
+    public var sidebarPosition: String = "left" { // "left", "right", "top", "bottom"
+        didSet {
+            setNeedsLayout()
+            setNeedsDisplay()
+        }
+    }
+
+    // Geometry & Transform state
+    private var sidebarRect: CGRect = .zero
+    private var settingsButtonRect: CGRect = .zero
+    private var tabsButtonRect: CGRect = .zero
+    private var statusRect: CGRect = .zero
+
+    private var canvasOriginX: CGFloat = 0.0
+    private var canvasOriginY: CGFloat = 0.0
+    private var availableW: CGFloat = 0.0
+    private var availableH: CGFloat = 0.0
+
+    private var scale: CGFloat = 1.0
+    private var offsetX: CGFloat = 0.0
+    private var offsetY: CGFloat = 0.0
 
     // Multi-touch tracking state
     private struct ActiveTouch {
@@ -26,7 +49,6 @@ public class MidiSurfaceView: UIView {
     private var activeTouches: [UITouch: ActiveTouch] = [:]
     private let hapticFeedback = UIImpactFeedbackGenerator(style: .medium)
     private var displayLink: CADisplayLink?
-    private var hasActiveAnimations: Bool = false
 
     public override init(frame: CGRect) {
         super.init(frame: frame)
@@ -40,7 +62,7 @@ public class MidiSurfaceView: UIView {
 
     private func setup() {
         isMultipleTouchEnabled = true
-        backgroundColor = UIColor(red: 0.04, green: 0.045, blue: 0.06, alpha: 1.0)
+        backgroundColor = UIColor(red: 0.05, green: 0.055, blue: 0.07, alpha: 1.0)
         hapticFeedback.prepare()
 
         displayLink = CADisplayLink(target: self, selector: #selector(onDisplayFrame))
@@ -49,6 +71,17 @@ public class MidiSurfaceView: UIView {
 
     deinit {
         displayLink?.invalidate()
+    }
+
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        updateGeometry()
+    }
+
+    public override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        updateGeometry()
+        setNeedsDisplay()
     }
 
     @objc private func onDisplayFrame() {
@@ -76,31 +109,117 @@ public class MidiSurfaceView: UIView {
     }
 
     // -------------------------------------------------------------
-    // Canvas Geometry & Scaling
+    // Canvas Geometry & Scaling (Full-Stage Adaptive Pipeline)
     // -------------------------------------------------------------
 
-    private var canvasTransform: (scale: CGFloat, offsetX: CGFloat, offsetY: CGFloat) {
-        let devW = bounds.width
-        let devH = bounds.height
-        guard devW > 0 && devH > 0 else { return (1.0, 0, 0) }
+    private var isFrameRotated: Bool {
+        return bounds.width < bounds.height
+    }
 
-        let targetW = layout.canvasWidth > 0 ? layout.canvasWidth : 920.0
-        let targetH = layout.canvasHeight > 0 ? layout.canvasHeight : 460.0
+    private func updateGeometry() {
+        let isRot = isFrameRotated
+        let devW = isRot ? bounds.height : bounds.width
+        let devH = isRot ? bounds.width : bounds.height
+        guard devW > 0 && devH > 0 else { return }
 
-        let scaleX = devW / targetW
-        let scaleY = devH / targetH
-        let scale = min(scaleX, scaleY)
+        let insets: UIEdgeInsets
+        if isRot {
+            insets = UIEdgeInsets(
+                top: safeAreaInsets.right,
+                left: safeAreaInsets.top,
+                bottom: safeAreaInsets.left,
+                right: safeAreaInsets.bottom
+            )
+        } else {
+            insets = safeAreaInsets
+        }
 
-        let offsetX = (devW - (targetW * scale)) / 2.0
-        let offsetY = (devH - (targetH * scale)) / 2.0
-        return (scale, offsetX, offsetY)
+        let isLeft = (sidebarPosition == "left")
+        let isRight = (sidebarPosition == "right")
+        let isTop = (sidebarPosition == "top")
+        let isBottom = (sidebarPosition == "bottom")
+
+        let barBaseSize: CGFloat = 54.0
+
+        if isLeft {
+            let barW = barBaseSize + insets.left
+            sidebarRect = CGRect(x: 0, y: 0, width: barW, height: devH)
+            let btnX = insets.left + 7.0
+            settingsButtonRect = CGRect(x: btnX, y: max(insets.top + 8.0, 14.0), width: 40.0, height: 40.0)
+            tabsButtonRect = CGRect(x: btnX, y: settingsButtonRect.maxY + 10.0, width: 40.0, height: 40.0)
+            statusRect = CGRect(x: btnX, y: devH - max(insets.bottom + 8.0, 14.0) - 34.0, width: 40.0, height: 34.0)
+
+            canvasOriginX = barW
+            canvasOriginY = insets.top
+            availableW = devW - barW - insets.right
+            availableH = devH - insets.top - insets.bottom
+        } else if isRight {
+            let barW = barBaseSize + insets.right
+            let barX = devW - barW
+            sidebarRect = CGRect(x: barX, y: 0, width: barW, height: devH)
+            let btnX = barX + 7.0
+            settingsButtonRect = CGRect(x: btnX, y: max(insets.top + 8.0, 14.0), width: 40.0, height: 40.0)
+            tabsButtonRect = CGRect(x: btnX, y: settingsButtonRect.maxY + 10.0, width: 40.0, height: 40.0)
+            statusRect = CGRect(x: btnX, y: devH - max(insets.bottom + 8.0, 14.0) - 34.0, width: 40.0, height: 34.0)
+
+            canvasOriginX = insets.left
+            canvasOriginY = insets.top
+            availableW = devW - barW - insets.left
+            availableH = devH - insets.top - insets.bottom
+        } else if isTop {
+            let barH = 44.0 + insets.top
+            sidebarRect = CGRect(x: 0, y: 0, width: devW, height: barH)
+            let btnY = insets.top + 4.0
+            settingsButtonRect = CGRect(x: max(insets.left + 12.0, 16.0), y: btnY, width: 36.0, height: 36.0)
+            tabsButtonRect = CGRect(x: settingsButtonRect.maxX + 12.0, y: btnY, width: 44.0, height: 36.0)
+            statusRect = CGRect(x: devW - max(insets.right + 12.0, 16.0) - 60.0, y: btnY, width: 60.0, height: 36.0)
+
+            canvasOriginX = insets.left
+            canvasOriginY = barH
+            availableW = devW - insets.left - insets.right
+            availableH = devH - barH - insets.bottom
+        } else { // bottom
+            let barH = 44.0 + insets.bottom
+            let barY = devH - barH
+            sidebarRect = CGRect(x: 0, y: barY, width: devW, height: barH)
+            let btnY = barY + 4.0
+            settingsButtonRect = CGRect(x: max(insets.left + 12.0, 16.0), y: btnY, width: 36.0, height: 36.0)
+            tabsButtonRect = CGRect(x: settingsButtonRect.maxX + 12.0, y: btnY, width: 44.0, height: 36.0)
+            statusRect = CGRect(x: devW - max(insets.right + 12.0, 16.0) - 60.0, y: btnY, width: 60.0, height: 36.0)
+
+            canvasOriginX = insets.left
+            canvasOriginY = insets.top
+            availableW = devW - insets.left - insets.right
+            availableH = devH - barH - insets.top
+        }
+
+        let baseW = layout.canvasWidth > 0 ? layout.canvasWidth : 920.0
+        let baseH = layout.canvasHeight > 0 ? layout.canvasHeight : 460.0
+
+        let scaleX = availableW / baseW
+        let scaleY = availableH / baseH
+        scale = min(scaleX, scaleY)
+
+        let canvasW = baseW * scale
+        let canvasH = baseH * scale
+
+        offsetX = canvasOriginX + (availableW - canvasW) / 2.0
+        offsetY = canvasOriginY + (availableH - canvasH) / 2.0
+    }
+
+    private func toDrawPoint(_ screenPoint: CGPoint) -> CGPoint {
+        if isFrameRotated {
+            return CGPoint(x: screenPoint.y, y: bounds.width - screenPoint.x)
+        }
+        return screenPoint
     }
 
     private func toCanvasPoint(_ screenPoint: CGPoint) -> CGPoint {
-        let geom = canvasTransform
+        guard scale > 0 else { return screenPoint }
+        let dp = toDrawPoint(screenPoint)
         return CGPoint(
-            x: (screenPoint.x - geom.offsetX) / geom.scale,
-            y: (screenPoint.y - geom.offsetY) / geom.scale
+            x: (dp.x - offsetX) / scale,
+            y: (dp.y - offsetY) / scale
         )
     }
 
@@ -112,7 +231,27 @@ public class MidiSurfaceView: UIView {
         guard let page = layout.currentPage else { return }
 
         for touch in touches {
-            let canvasPt = toCanvasPoint(touch.location(in: self))
+            let screenPt = touch.location(in: self)
+            let drawPt = toDrawPoint(screenPt)
+
+            // 1. Sidebar Buttons Hit-Testing
+            if settingsButtonRect.contains(drawPt) {
+                if hapticsEnabled { hapticFeedback.impactOccurred() }
+                delegate?.midiSurfaceDidRequestSettings()
+                return
+            }
+
+            if tabsButtonRect.contains(drawPt) {
+                if hapticsEnabled { hapticFeedback.impactOccurred() }
+                if layout.pages.count > 1 {
+                    layout.activePageIndex = (layout.activePageIndex + 1) % layout.pages.count
+                    setNeedsDisplay()
+                }
+                return
+            }
+
+            // 2. Playable Controls Hit-Testing
+            let canvasPt = toCanvasPoint(screenPt)
 
             // Hit test backwards (topmost control first)
             for ctrl in page.controls.reversed() {
@@ -183,7 +322,6 @@ public class MidiSurfaceView: UIView {
         case "fader":
             updateFaderValue(ctrl: ctrl, canvasPoint: canvasPoint)
         case "knob":
-            // Touch down records initial anchor for vertical drag or rotary gesture
             break
         case "button":
             ctrl.buttonFlash = 1.0
@@ -252,7 +390,6 @@ public class MidiSurfaceView: UIView {
     }
 
     private func updateKnobValue(ctrl: MidiControlModel, at: ActiveTouch, canvasPoint: CGPoint) {
-        // High-precision vertical drag tracking
         let dy = at.initialPoint.y - canvasPoint.y
         let sensitivity = 0.005
         let range = Double(ctrl.maxValue - ctrl.minValue)
@@ -304,31 +441,167 @@ public class MidiSurfaceView: UIView {
     // -------------------------------------------------------------
 
     public override func draw(_ rect: CGRect) {
-        guard let ctx = UIGraphicsGetCurrentContext(), let page = layout.currentPage else { return }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
 
-        let geom = canvasTransform
-        ctx.saveGState()
-        ctx.translateBy(x: geom.offsetX, y: geom.offsetY)
-        ctx.scaleBy(x: geom.scale, y: geom.scale)
+        // Background
+        UIColor(red: 0.05, green: 0.055, blue: 0.07, alpha: 1.0).setFill()
+        UIRectFill(rect)
 
-        for ctrl in page.controls {
-            switch ctrl.type {
-            case "fader":
-                drawFader(ctx: ctx, ctrl: ctrl)
-            case "knob":
-                drawKnob(ctx: ctx, ctrl: ctrl)
-            case "button":
-                drawButton(ctx: ctx, ctrl: ctrl)
-            case "xypad":
-                drawXYPad(ctx: ctx, ctrl: ctrl)
-            case "label":
-                drawLabel(ctx: ctx, ctrl: ctrl)
-            default:
-                break
-            }
+        let isRot = isFrameRotated
+        if isRot {
+            ctx.saveGState()
+            ctx.translateBy(x: bounds.width, y: 0)
+            ctx.rotate(by: .pi / 2)
         }
 
-        ctx.restoreGState()
+        // 1. Draw Playable Controls Canvas
+        if let page = layout.currentPage {
+            ctx.saveGState()
+            ctx.translateBy(x: offsetX, y: offsetY)
+            ctx.scaleBy(x: scale, y: scale)
+
+            for ctrl in page.controls {
+                switch ctrl.type {
+                case "fader":
+                    drawFader(ctx: ctx, ctrl: ctrl)
+                case "knob":
+                    drawKnob(ctx: ctx, ctrl: ctrl)
+                case "button":
+                    drawButton(ctx: ctx, ctrl: ctrl)
+                case "xypad":
+                    drawXYPad(ctx: ctx, ctrl: ctrl)
+                case "label":
+                    drawLabel(ctx: ctx, ctrl: ctrl)
+                default:
+                    break
+                }
+            }
+
+            ctx.restoreGState()
+        }
+
+        // 2. Draw Integrated System Sidebar
+        drawSidebar(ctx: ctx)
+
+        if isRot {
+            ctx.restoreGState()
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Integrated Sidebar Drawing (OLED Black, Border, Icons, LED)
+    // -------------------------------------------------------------
+
+    private func drawSidebar(ctx: CGContext) {
+        guard !sidebarRect.isEmpty else { return }
+
+        // Solid OLED true black background
+        UIColor.black.setFill()
+        UIRectFill(sidebarRect)
+
+        // Hairline boundary divider
+        UIColor(white: 1.0, alpha: 0.12).setStroke()
+        let divider = UIBezierPath()
+        let isLeft = (sidebarPosition == "left")
+        let isRight = (sidebarPosition == "right")
+        let isTop = (sidebarPosition == "top")
+
+        if isLeft {
+            divider.move(to: CGPoint(x: sidebarRect.maxX, y: 0))
+            divider.addLine(to: CGPoint(x: sidebarRect.maxX, y: bounds.height))
+        } else if isRight {
+            divider.move(to: CGPoint(x: sidebarRect.minX, y: 0))
+            divider.addLine(to: CGPoint(x: sidebarRect.minX, y: bounds.height))
+        } else if isTop {
+            divider.move(to: CGPoint(x: 0, y: sidebarRect.maxY))
+            divider.addLine(to: CGPoint(x: bounds.width, y: sidebarRect.maxY))
+        } else {
+            divider.move(to: CGPoint(x: 0, y: sidebarRect.minY))
+            divider.addLine(to: CGPoint(x: bounds.width, y: sidebarRect.minY))
+        }
+        divider.lineWidth = 1.0
+        divider.stroke()
+
+        // 1. Settings Button (Circle with Gear & LED Status)
+        let sR = settingsButtonRect
+        let sPath = UIBezierPath(ovalIn: sR)
+        UIColor(white: 0.14, alpha: 0.9).setFill()
+        sPath.fill()
+        UIColor(white: 0.28, alpha: 0.8).setStroke()
+        sPath.lineWidth = 1.0
+        sPath.stroke()
+
+        // Connection LED Dot
+        let isConn = NetworkManager.shared.isConnected
+        let ledColor = isConn ? UIColor(red: 0.18, green: 0.85, blue: 0.35, alpha: 1.0) : UIColor(red: 1.0, green: 0.65, blue: 0.05, alpha: 1.0)
+        let ledRect = CGRect(x: sR.minX + 8.0, y: sR.midY - 3.0, width: 6.0, height: 6.0)
+        ledColor.setFill()
+        UIBezierPath(ovalIn: ledRect).fill()
+
+        // Sliders / Gear symbol
+        UIColor(white: 0.9, alpha: 1.0).setStroke()
+        let iconLine1 = UIBezierPath()
+        iconLine1.move(to: CGPoint(x: sR.midX + 2.0, y: sR.midY - 5.0))
+        iconLine1.addLine(to: CGPoint(x: sR.midX + 11.0, y: sR.midY - 5.0))
+        iconLine1.lineWidth = 1.5
+        iconLine1.lineCapStyle = .round
+        iconLine1.stroke()
+
+        let iconLine2 = UIBezierPath()
+        iconLine2.move(to: CGPoint(x: sR.midX - 1.0, y: sR.midY))
+        iconLine2.addLine(to: CGPoint(x: sR.midX + 8.0, y: sR.midY))
+        iconLine2.lineWidth = 1.5
+        iconLine2.lineCapStyle = .round
+        iconLine2.stroke()
+
+        let iconLine3 = UIBezierPath()
+        iconLine3.move(to: CGPoint(x: sR.midX + 2.0, y: sR.midY + 5.0))
+        iconLine3.addLine(to: CGPoint(x: sR.midX + 11.0, y: sR.midY + 5.0))
+        iconLine3.lineWidth = 1.5
+        iconLine3.lineCapStyle = .round
+        iconLine3.stroke()
+
+        // 2. Tabs Button (Layered Pages)
+        let tR = tabsButtonRect
+        let hasMultiPages = layout.pages.count > 1
+        let tPath = UIBezierPath(roundedRect: tR, cornerRadius: 10.0)
+        UIColor(white: 0.12, alpha: 0.9).setFill()
+        tPath.fill()
+        UIColor(white: 0.24, alpha: 0.8).setStroke()
+        tPath.lineWidth = 1.0
+        tPath.stroke()
+
+        // Stacked page icon
+        let pStrokeColor = hasMultiPages ? UIColor(red: 0.0, green: 0.88, blue: 1.0, alpha: 0.9) : UIColor(white: 0.5, alpha: 1.0)
+        pStrokeColor.setStroke()
+        let r1 = CGRect(x: tR.midX - 7.0, y: tR.midY - 9.0, width: 10.0, height: 9.0)
+        UIBezierPath(roundedRect: r1, cornerRadius: 2.0).stroke()
+        let r2 = CGRect(x: tR.midX - 3.0, y: tR.midY - 5.0, width: 10.0, height: 9.0)
+        UIBezierPath(roundedRect: r2, cornerRadius: 2.0).stroke()
+
+        // Active page text "P1", "P2"
+        let pText = "P\(layout.activePageIndex + 1)"
+        let pStyle = NSMutableParagraphStyle()
+        pStyle.alignment = .center
+        let pAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 9.0, weight: .bold),
+            .foregroundColor: hasMultiPages ? UIColor(red: 0.0, green: 0.88, blue: 1.0, alpha: 1.0) : UIColor(white: 0.6, alpha: 1.0),
+            .paragraphStyle: pStyle
+        ]
+        let pRect = CGRect(x: tR.minX, y: tR.maxY - 13.0, width: tR.width, height: 11.0)
+        (pText as NSString).draw(in: pRect, withAttributes: pAttrs)
+
+        // 3. Status indicator at bottom
+        let statText = isConn ? "<1 ms" : "DISC"
+        let statStyle = NSMutableParagraphStyle()
+        statStyle.alignment = .center
+        let statAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
+            .foregroundColor: isConn ? UIColor(red: 0.18, green: 0.85, blue: 0.35, alpha: 0.9) : UIColor(white: 0.45, alpha: 1.0),
+            .paragraphStyle: statStyle
+        ]
+        let statRect = CGRect(x: statusRect.minX - 4.0, y: statusRect.midY - 5.0, width: statusRect.width + 8.0, height: 12.0)
+        (statText as NSString).draw(in: statRect, withAttributes: statAttrs)
     }
 
     // -------------------------------------------------------------
@@ -417,7 +690,7 @@ public class MidiSurfaceView: UIView {
                                    y: trackRect.midY - (thumbH / 2.0),
                                    width: thumbW, height: thumbH)
 
-            // Draw glowing neon beam
+            // Glowing neon fill beam
             let beamY = slotRect.midY
             let beamLeft = slotRect.origin.x + 6.0
             let beamRight = beamLeft + (pct * travelW)
@@ -446,7 +719,7 @@ public class MidiSurfaceView: UIView {
             let slotX = trackRect.midX - (slotW / 2.0)
             let slotRect = CGRect(x: slotX, y: trackRect.origin.y + 4.0, width: slotW, height: trackRect.height - 8.0)
 
-            // Subtle graduation tick marks
+            // Graduation tick marks
             let numTicks = 9
             let tickStep = slotRect.height / CGFloat(numTicks - 1)
             UIColor(white: 0.25, alpha: 0.7).setStroke()
@@ -481,7 +754,7 @@ public class MidiSurfaceView: UIView {
                                    y: max(slotRect.origin.y - 2.0, min(slotRect.maxY - thumbH + 2.0, thumbY)),
                                    width: thumbW, height: thumbH)
 
-            // Neon glowing fill beam
+            // Glowing neon fill beam
             let beamX = slotRect.midX
             let beamBottom = slotRect.maxY - 6.0
             let beamTop = beamBottom - (pct * travelH)
@@ -512,7 +785,6 @@ public class MidiSurfaceView: UIView {
         ctx.setShadow(offset: CGSize(width: 0, height: 3.0), blur: 8.0, color: UIColor(white: 0.0, alpha: 0.75).cgColor)
         let thumbPath = UIBezierPath(roundedRect: rect, cornerRadius: 4.5)
 
-        // Brushed metallic gradient
         let colors = [
             UIColor(red: 0.28, green: 0.30, blue: 0.36, alpha: 1.0).cgColor,
             UIColor(red: 0.18, green: 0.19, blue: 0.23, alpha: 1.0).cgColor,
@@ -529,7 +801,6 @@ public class MidiSurfaceView: UIView {
         thumbPath.lineWidth = 1.0
         thumbPath.stroke()
 
-        // Core neon indicator slit
         let slitW: CGFloat = isHoriz ? 3.0 : 16.0
         let slitH: CGFloat = isHoriz ? 16.0 : 3.0
         let slitRect = CGRect(x: rect.midX - (slitW / 2.0), y: rect.midY - (slitH / 2.0), width: slitW, height: slitH)
@@ -574,7 +845,7 @@ public class MidiSurfaceView: UIView {
         let cy = dialArea.midY
         let radius = dialSize * 0.44
 
-        // 1. Recessed Well
+        // Recessed Well
         let well = UIBezierPath(ovalIn: CGRect(x: cx - radius, y: cy - radius, width: radius * 2.0, height: radius * 2.0))
         UIColor(red: 0.05, green: 0.06, blue: 0.08, alpha: 1.0).setFill()
         well.fill()
@@ -582,7 +853,7 @@ public class MidiSurfaceView: UIView {
         well.lineWidth = 1.0
         well.stroke()
 
-        // 2. Halo Arc Ring
+        // 270° Rotary Halo Arc
         let haloRadius = radius * 0.90
         let range = (ctrl.maxValue > ctrl.minValue) ? CGFloat(ctrl.maxValue - ctrl.minValue) : 127.0
         var pct = CGFloat(ctrl.value - Double(ctrl.minValue)) / range
@@ -592,14 +863,12 @@ public class MidiSurfaceView: UIView {
         let totalSweep: CGFloat = 270.0 * .pi / 180.0
         let trackEndAngle: CGFloat = startAngle + totalSweep
 
-        // Unlit track
         let trackArc = UIBezierPath(arcCenter: CGPoint(x: cx, y: cy), radius: haloRadius, startAngle: startAngle, endAngle: trackEndAngle, clockwise: true)
         UIColor(red: 0.12, green: 0.14, blue: 0.18, alpha: 1.0).setStroke()
         trackArc.lineWidth = 4.0
         trackArc.lineCapStyle = .round
         trackArc.stroke()
 
-        // Active glowing neon arc
         let activeEndAngle = startAngle + (pct * totalSweep)
         if pct > 0.01 {
             let activeArc = UIBezierPath(arcCenter: CGPoint(x: cx, y: cy), radius: haloRadius, startAngle: startAngle, endAngle: activeEndAngle, clockwise: true)
@@ -612,7 +881,7 @@ public class MidiSurfaceView: UIView {
             ctx.restoreGState()
         }
 
-        // 3. Dial Face
+        // Dial Face
         let faceRadius = radius * 0.74
         let faceRect = CGRect(x: cx - faceRadius, y: cy - faceRadius, width: faceRadius * 2.0, height: faceRadius * 2.0)
         let face = UIBezierPath(ovalIn: faceRect)
@@ -622,7 +891,6 @@ public class MidiSurfaceView: UIView {
         face.lineWidth = 1.0
         face.stroke()
 
-        // 4. Value Display (Center Cap vs Bottom Badge)
         let isCenterVal = (ctrl.valuePosition == "center" && ctrl.valueDisplay != "none")
         let needleAngle = activeEndAngle
         let needleStartR = isCenterVal ? (faceRadius * 0.55) : (faceRadius * 0.20)
@@ -663,7 +931,6 @@ public class MidiSurfaceView: UIView {
             pStyle.alignment = .center
 
             if isCenterVal {
-                // Center circular cap
                 let centerR = faceRadius * 0.50
                 let centerCap = UIBezierPath(ovalIn: CGRect(x: cx - centerR, y: cy - centerR, width: centerR * 2.0, height: centerR * 2.0))
                 UIColor(red: 0.12, green: 0.14, blue: 0.18, alpha: 1.0).setFill()
@@ -674,7 +941,7 @@ public class MidiSurfaceView: UIView {
 
                 let autoFontSize = max(9.0, min(14.0, centerR * 0.74))
                 let rawFontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize
-                let fontSize = min(20.0, rawFontSize) // Capped at 20pt strictly
+                let fontSize = min(20.0, rawFontSize)
 
                 let valAttrs: [NSAttributedString.Key: Any] = [
                     .font: UIFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold),
@@ -685,7 +952,6 @@ public class MidiSurfaceView: UIView {
                 let textRect = CGRect(x: cx - centerR, y: cy - (textSize.height / 2.0), width: centerR * 2.0, height: textSize.height)
                 (valString as NSString).draw(in: textRect, withAttributes: valAttrs)
             } else {
-                // Bottom badge pill
                 let autoFontSize: CGFloat = 10.0
                 let fontSize = (ctrl.valueFontSize > 0) ? ctrl.valueFontSize : autoFontSize
                 let badgeW: CGFloat = max(42.0, CGFloat(valString.count) * (fontSize * 0.85) + 14.0)
@@ -812,7 +1078,6 @@ public class MidiSurfaceView: UIView {
         bgPath.lineWidth = 1.0
         bgPath.stroke()
 
-        // Crosshairs
         UIColor(white: 0.18, alpha: 0.6).setStroke()
         let chH = UIBezierPath()
         chH.move(to: CGPoint(x: r.minX + 8.0, y: r.midY))
@@ -824,7 +1089,6 @@ public class MidiSurfaceView: UIView {
         chV.addLine(to: CGPoint(x: r.midX, y: r.maxY - 8.0))
         chV.stroke()
 
-        // Puck position
         let normX = CGFloat(ctrl.valueX / 127.0)
         let normY = CGFloat(1.0 - (ctrl.valueY / 127.0))
         let puckX = r.origin.x + (normX * r.width)

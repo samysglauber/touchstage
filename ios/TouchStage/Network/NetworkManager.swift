@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import UIKit
 
 public extension Notification.Name {
     static let touchStageConnectionChanged = Notification.Name("touchStageConnectionChanged")
@@ -18,6 +19,7 @@ public class NetworkManager {
     private var udpSocketFD: Int32 = -1
     private var targetAddr = sockaddr_in()
     private var tcpConnection: NWConnection?
+    private var tcpBuffer = Data()
     private let netQueue = DispatchQueue(label: "com.touchstage.network", qos: .userInteractive)
 
     private var pingTimer: Timer?
@@ -130,22 +132,31 @@ public class NetworkManager {
 
     private func setupTcpSync() {
         tcpConnection?.cancel()
+        tcpBuffer.removeAll()
 
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return }
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
         let conn = NWConnection(to: endpoint, using: .tcp)
 
         conn.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .ready:
-                self?.isConnected = true
-                self?.sendHandshake()
-                self?.receiveNextPacket()
-            case .failed, .cancelled:
-                // Silent fallback
-                break
-            default:
-                break
+            DispatchQueue.main.async {
+                switch state {
+                case .ready:
+                    NSLog("[TouchStage iOS] TCP Connected to %@:%d", self?.host ?? "", self?.port ?? 0)
+                    self?.isConnected = true
+                    NotificationCenter.default.post(name: .touchStageConnectionChanged, object: nil)
+                    self?.sendHandshake()
+                    self?.receiveNextPacket()
+                case .failed(let error):
+                    NSLog("[TouchStage iOS] TCP failed: %@", error.localizedDescription)
+                    self?.isConnected = false
+                    NotificationCenter.default.post(name: .touchStageConnectionChanged, object: nil)
+                case .cancelled:
+                    self?.isConnected = false
+                    NotificationCenter.default.post(name: .touchStageConnectionChanged, object: nil)
+                default:
+                    break
+                }
             }
         }
 
@@ -154,28 +165,54 @@ public class NetworkManager {
     }
 
     private func sendHandshake() {
-        let msg = "{\"client\":\"TouchStage iOS\",\"version\":\"1.0\"}\n"
-        if let data = msg.data(using: .utf8) {
-            tcpConnection?.send(content: data, completion: .contentProcessed({ _ in }))
+        let devName = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let handshake = "DEVICE:\(devName)\nGET_LAYOUT\n"
+        if let data = handshake.data(using: .utf8) {
+            tcpConnection?.send(content: data, completion: .contentProcessed({ error in
+                if let error = error {
+                    NSLog("[TouchStage iOS] Handshake send error: %@", error.localizedDescription)
+                } else {
+                    NSLog("[TouchStage iOS] Sent DEVICE handshake: '%@'", devName)
+                }
+            }))
         }
     }
 
     private func receiveNextPacket() {
         tcpConnection?.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
             guard error == nil, let data = content, !data.isEmpty else {
-                if isComplete { self?.setupTcpSync() }
+                if isComplete {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                        self?.setupTcpSync()
+                    }
+                }
                 return
             }
 
-            self?.handleTcpPayload(data)
+            self?.handleIncomingTcpData(data)
             self?.receiveNextPacket()
         }
     }
 
-    private func handleTcpPayload(_ data: Data) {
-        if let layout = LayoutModel(jsonData: data), !layout.pages.isEmpty {
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .touchStageDidReceiveLayout, object: layout)
+    private func handleIncomingTcpData(_ data: Data) {
+        tcpBuffer.append(data)
+
+        while let newlineIndex = tcpBuffer.firstIndex(of: UInt8(ascii: "\n")) {
+            let lineData = tcpBuffer.subdata(in: 0..<newlineIndex)
+            tcpBuffer.removeSubrange(0...newlineIndex)
+
+            guard let line = String(data: lineData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else { continue }
+
+            if line.hasPrefix("SYNC_LAYOUT:") || line.hasPrefix("LAYOUT:") {
+                let json = line.hasPrefix("SYNC_LAYOUT:") ? String(line.dropFirst(12)) : String(line.dropFirst(7))
+                if let jsonData = json.data(using: .utf8), let layout = LayoutModel(jsonData: jsonData) {
+                    NSLog("[TouchStage iOS] Received synced layout from Bridge (%ld bytes)", json.count)
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .touchStageDidReceiveLayout, object: layout)
+                    }
+                }
+            } else if line.hasPrefix("OK:") {
+                NSLog("[TouchStage iOS] Bridge ACK: %@", line)
             }
         }
     }
