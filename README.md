@@ -4,11 +4,11 @@
 
 # TouchStage
 
-**Turn your Android phone or tablet into a wireless MIDI controller for your Mac.**
+**Turn your iPhone, iPad, or Android device into a wireless MIDI controller for your Mac.**
 
 Design your own touch surfaces, play them over Wi-Fi, and use them in any DAW. No drivers, no cables, no manual pairing.
 
-[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Android-black?style=flat-square)](#requirements)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20iOS%20%7C%20Android-black?style=flat-square)](#requirements)
 [![CoreMIDI](https://img.shields.io/badge/MIDI-Apple%20CoreMIDI-007AFF?style=flat-square)](#how-it-works)
 [![Transport](https://img.shields.io/badge/Transport-UDP-00C7BE?style=flat-square)](#how-it-works)
 [![License](https://img.shields.io/badge/License-MIT-34C759?style=flat-square)](LICENSE)
@@ -39,14 +39,14 @@ TouchStage is made of three native apps that work together:
 |---|---|---|
 | <img src="assets/bridge_icon.png" alt="Bridge" width="28" /> **Bridge** | macOS (menu bar) | Receives UDP from the device and exposes a CoreMIDI port |
 | <img src="assets/editor_icon.png" alt="Editor" width="28" /> **Editor** | macOS | Visual designer for MIDI surfaces, with live sync to the device |
-| <img src="assets/controller_icon.png" alt="Controller" width="28" /> **Controller** | Android | The touch instrument you actually play |
+| <img src="assets/controller_icon.png" alt="Controller" width="28" /> **Controller** | iOS & Android | The touch instrument you actually play (iPhone, iPad, Android) |
 
 ```
-┌────────────────┐   UDP (MIDI, 3 bytes)   ┌────────────────┐   CoreMIDI   ┌─────────┐
-│   Controller   │ ──────────────────────▶ │     Bridge     │ ───────────▶ │   DAW   │
-│   (Android)    │ ◀── UDP discovery ───── │    (macOS)     │              └─────────┘
-│                │ ◀── TCP layout sync ─── │     Editor     │
-└────────────────┘                         └────────────────┘
+┌────────────────────────┐   UDP (MIDI, 3 bytes)   ┌────────────────┐   CoreMIDI   ┌─────────┐
+│       Controller       │ ──────────────────────▶ │     Bridge     │ ───────────▶ │   DAW   │
+│    (iOS / Android)     │ ◀── UDP discovery ───── │    (macOS)     │              └─────────┘
+│                        │ ◀── TCP layout sync ─── │     Editor     │
+└────────────────────────┘                         └────────────────┘
 ```
 
 ### <img src="assets/bridge_icon.png" alt="Bridge icon" width="32" align="center" /> Bridge (macOS)
@@ -70,14 +70,14 @@ A desktop canvas for designing multi-page MIDI surfaces.
   - **XY pads and text labels:** two-axis CC modulation and section headers.
 - **Live sync:** push layouts to connected devices instantly over TCP.
 
-### <img src="assets/controller_icon.png" alt="Controller icon" width="32" align="center" /> Controller (Android)
+### <img src="assets/controller_icon.png" alt="Controller icon" width="32" align="center" /> Controller (iOS & Android)
 
-A touch-first instrument for phones and tablets.
+A touch-first instrument for iPhone, iPad, and Android phones and tablets.
 
-- **Hardware-accelerated canvas:** custom 2D rendering for fluid 60/120 FPS multi-touch.
+- **Hardware-accelerated canvas:** custom 2D rendering for fluid 60/120 FPS multi-touch (with 120Hz ProMotion support on iPad Pro and iPhone Pro).
 - **Multi-page layouts:** quick slide transitions, tab flyout navigation, configurable sidebar orientation.
 - **Auto-connect:** finds the Bridge on your Wi-Fi with no setup.
-- **Haptic feedback:** instant vibration on touch.
+- **Haptic feedback:** instant tactile vibration on touch.
 
 <!-- TODO: add a screenshots table (Bridge | Editor | Controller), e.g.
 | ![Bridge](assets/screenshots/bridge.png) | ![Editor](assets/screenshots/editor.png) | ![Controller](assets/screenshots/controller.png) | -->
@@ -85,8 +85,9 @@ A touch-first instrument for phones and tablets.
 ## Requirements
 
 - **Mac:** macOS 11.0 (Big Sur) or higher
+- **iOS:** iOS / iPadOS 16.0 or higher (iPhone & iPad)
 - **Android:** Android 5.0 (Lollipop, API 21) or higher
-- Both devices on the **same Wi-Fi network** (5 GHz recommended for best latency)
+- All devices on the **same Wi-Fi network** (5 GHz recommended for best latency)
 - Any DAW or synth that accepts CoreMIDI input
 
 ## Quick Start
@@ -99,9 +100,12 @@ A touch-first instrument for phones and tablets.
 
 TouchStage appears in your menu bar.
 
-**2. Install the Android app**
+**2. Install or launch the Controller app**
 
-Download [`TouchStage.apk`](TouchStage.apk) and install it on your device (you may need to allow installs from unknown sources), or [build it from source](#building-from-source). Open the app while on the same Wi-Fi network as your Mac. It pairs automatically.
+- **iOS (iPhone / iPad):** Open the project in Xcode (`open ios/TouchStage.xcodeproj`) and press Run (Cmd+R) to deploy to your device or simulator.
+- **Android:** Download [`TouchStage.apk`](TouchStage.apk) and install it on your device, or [build it from source](#building-from-source).
+
+Open the app while on the same Wi-Fi network as your Mac. It pairs automatically via Bonjour and local UDP beacon broadcast.
 
 **3. Pick the port in your DAW**
 
@@ -120,7 +124,7 @@ Arrange faders, knobs, pads and XY pads, set MIDI channels and CC numbers, then 
 | Channel | Protocol | Port | Purpose |
 |---|---|---|---|
 | MIDI events | UDP, raw 3-byte MIDI datagrams | `9000` / `9001` | Controller → Bridge, played notes and CC |
-| Discovery | UDP broadcast beacon | `9002` | Bridge announces itself; the device connects automatically |
+| Discovery | UDP broadcast beacon & Bonjour | `9002` / Bonjour | Bridge announces itself; devices connect automatically |
 | Layout sync | TCP, JSON | `9000` | Editor → Controller, pushes surfaces and templates |
 | DAW output | Apple CoreMIDI | Virtual Port | Bridge exposes the virtual port `TouchStage Controller` |
 
@@ -129,12 +133,14 @@ Arrange faders, knobs, pads and XY pads, set MIDI channels and CC numbers, then 
 ```
 touchstage/
 ├── android/          # Android Controller app
+├── ios/              # iOS Controller app (iPhone & iPad, Swift & SwiftUI)
 ├── macos/            # Bridge and Editor (macOS)
 ├── layouts/          # Layout templates
 ├── assets/           # Icons and images
 ├── run_bridge.sh     # Launch the Bridge
 ├── run_editor.sh     # Launch the Editor
 ├── build_android.sh  # Build TouchStage.apk
+├── build_ios.sh      # Open / Build iOS app
 └── TouchStage.apk    # Prebuilt Android app
 ```
 
@@ -142,11 +148,16 @@ touchstage/
 
 ### Prerequisites
 - **macOS:** Xcode Command Line Tools (`clang` / `swiftc`)
+- **iOS:** Xcode 15+ (for building and deploying to iPhone / iPad)
 - **Android:** Android SDK (API 21+) and JDK 17+ (or Android Studio)
 
 ```bash
 # macOS apps (Bridge and Editor)
 ./macos/build_all.sh
+
+# iOS app (iPhone & iPad)
+./build_ios.sh
+# or: open ios/TouchStage.xcodeproj
 
 # Android app (outputs TouchStage.apk)
 ./build_android.sh
@@ -178,10 +189,10 @@ touchstage/
 
 ## Roadmap
 
+- [x] iOS client version (iPhone & iPad native Swift/SwiftUI app)
 - [ ] Bidirectional MIDI feedback (motorized fader emulation & LED indicators)
 - [ ] USB-tethered MIDI mode for zero-wireless environments
 - [ ] Additional components (piano roll keyboard, step sequencer)
-- [ ] iOS client version
 
 ## Contributing
 

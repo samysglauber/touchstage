@@ -38,3 +38,9 @@ captures/
 *.jks
 *.keystore
 android/app/build/outputs/apk/
+
+# iOS & Xcode Build Output
+ios/build/
+*.xcuserstate
+xcuserdata/
+DerivedData/
