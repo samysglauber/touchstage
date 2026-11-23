@@ -36,6 +36,8 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
     private static final String PREF_DEVICE_NAME = "pref_device_name";
     public static final String PREF_SIDEBAR_LANDSCAPE = "pref_sidebar_landscape";
     public static final String PREF_SIDEBAR_PORTRAIT = "pref_sidebar_portrait";
+    public static final String PREF_LAST_PRESET_ID = "pref_last_preset_id";
+    public static final String PREF_LAST_PRESET_NAME = "pref_last_preset_name";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -81,8 +83,33 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         surfaceView.setSidebarPositions(landscapePos, portraitPos);
         setContentView(surfaceView);
 
-        // 2. Load active layout state (or fallback to bundled default layout)
-        LayoutModel activeLayout = LayoutModel.loadActiveLayoutState(this);
+        // 2. Load active layout state or last preset
+        String lastPresetId = prefs.getString(PREF_LAST_PRESET_ID, null);
+        String lastPresetName = prefs.getString(PREF_LAST_PRESET_NAME, null);
+        LayoutModel activeLayout = null;
+
+        LayoutModel savedState = LayoutModel.loadActiveLayoutState(this);
+
+        if (lastPresetId != null) {
+            // First check if the saved state matches the last selected preset name
+            if (savedState != null && (lastPresetId.equals(savedState.name) || 
+                (lastPresetName != null && lastPresetName.equalsIgnoreCase(savedState.name)))) {
+                activeLayout = savedState;
+            } else {
+                // Find matching preset by ID or name
+                for (PresetManager.PresetItem p : PresetManager.getAllPresets(this)) {
+                    if (lastPresetId.equals(p.id) || lastPresetId.equalsIgnoreCase(p.name) ||
+                        (lastPresetName != null && lastPresetName.equalsIgnoreCase(p.name))) {
+                        activeLayout = PresetManager.loadPreset(this, p);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (activeLayout == null) {
+            activeLayout = savedState;
+        }
         if (activeLayout == null) {
             activeLayout = LayoutModel.loadFromAsset(this, "default_layout.json");
         }
@@ -103,9 +130,16 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
 
             @Override
             public void onPresetSelected(PresetManager.PresetItem presetItem) {
+                prefs.edit()
+                    .putString(PREF_LAST_PRESET_ID, presetItem.id)
+                    .putString(PREF_LAST_PRESET_NAME, presetItem.name)
+                    .apply();
                 LayoutModel p = PresetManager.loadPreset(MainActivity.this, presetItem);
                 if (p != null) {
                     applyLayout(p);
+                }
+                if (networkManager != null && networkManager.isConnected()) {
+                    networkManager.requestDawSync();
                 }
                 hideSystemUI();
             }
@@ -125,6 +159,13 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
                     .putString(PREF_SIDEBAR_PORTRAIT, newPortraitPos)
                     .apply();
                 surfaceView.setSidebarPositions(newLandscapePos, newPortraitPos);
+            }
+
+            @Override
+            public void onSyncDawRequested() {
+                if (networkManager != null && networkManager.isConnected()) {
+                    networkManager.requestDawSync();
+                }
             }
         });
         settingsModal.setConnectedHost(savedHost);
@@ -159,7 +200,9 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         String currentName = prefs.getString(PREF_DEVICE_NAME, Build.MODEL != null ? Build.MODEL : "Phone");
         String lPos = prefs.getString(PREF_SIDEBAR_LANDSCAPE, "right");
         String pPos = prefs.getString(PREF_SIDEBAR_PORTRAIT, "bottom");
-        settingsModal.show(discovery.getDevices(), currentName, lPos, pPos);
+        String activePresetId = prefs.getString(PREF_LAST_PRESET_ID, "builtin_stage8");
+        String activePresetName = prefs.getString(PREF_LAST_PRESET_NAME, "Stage 8-Track");
+        settingsModal.show(discovery.getDevices(), currentName, lPos, pPos, activePresetId, activePresetName, networkManager != null && networkManager.isConnected());
     }
 
     @Override
@@ -184,6 +227,7 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
             String currentName = prefs.getString(PREF_DEVICE_NAME, Build.MODEL != null ? Build.MODEL : "Phone");
             networkManager.setDeviceName(currentName);
             networkManager.sendMidi(0, 0, 0); // wake up
+            networkManager.requestDawSync(); // Fetch DAW controls on connect!
         }
     }
 
@@ -246,7 +290,14 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
         btnSaveAndApply.setBackground(createButtonBg(Color.parseColor("#0A84FF"))); // Apple system blue
         btnSaveAndApply.setOnClickListener(v -> {
             PresetManager.savePreset(MainActivity.this, layout);
+            prefs.edit()
+                .putString(PREF_LAST_PRESET_ID, layout.name)
+                .putString(PREF_LAST_PRESET_NAME, layout.name)
+                .apply();
             applyLayout(layout);
+            if (networkManager != null && networkManager.isConnected()) {
+                networkManager.requestDawSync();
+            }
             dialog.dismiss();
             hideSystemUI();
         });
@@ -267,7 +318,14 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
             btnOnlyApply.setLayoutParams(p);
             btnOnlyApply.setBackground(createButtonBg(Color.parseColor("#2C2C2E")));
             btnOnlyApply.setOnClickListener(v -> {
+                prefs.edit()
+                    .putString(PREF_LAST_PRESET_ID, layout.name)
+                    .putString(PREF_LAST_PRESET_NAME, layout.name)
+                    .apply();
                 applyLayout(layout);
+                if (networkManager != null && networkManager.isConnected()) {
+                    networkManager.requestDawSync();
+                }
                 dialog.dismiss();
                 hideSystemUI();
             });
@@ -331,6 +389,20 @@ public class MainActivity extends Activity implements MidiNetworkManager.Connect
     public void onMidiReceived(int status, int data1, int data2) {
         if (surfaceView != null) {
             surfaceView.updateControlFromMidi(status, data1, data2);
+        }
+    }
+
+    @Override
+    public void onBpmReceived(float bpm) {
+        if (surfaceView != null) {
+            surfaceView.setBpm(bpm);
+        }
+    }
+
+    @Override
+    public void onBeatReceived(int beat) {
+        if (surfaceView != null) {
+            surfaceView.triggerBeat(beat);
         }
     }
 

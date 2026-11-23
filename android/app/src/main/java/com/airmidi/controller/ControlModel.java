@@ -32,7 +32,9 @@ public class ControlModel {
     public String faderStyle = "standard"; // "standard", "inverted", "centered" (for faders)
     public float fontSize = 0; // custom font size (0 = auto)
     public String shape = "square"; // "square", "circle"
-    public boolean hasBackground = false; // for label controls
+    public boolean hasBackground = false;
+    public String backgroundStyle = "outline"; // "outline", "filled"
+    public String displayMode = "bpm"; // "bpm", "cc" // for label controls
     public boolean hasVuMeter = false; // integrated VU meter
     public int vuMidiChannel = 1;
     public int vuMidiNumber = 7;
@@ -47,6 +49,7 @@ public class ControlModel {
 
     // Button mode
     public String mode = "momentary";
+    public String targetPageId = ""; // Target screen/page ID to jump to on tap
 
     // XY Pad
     public float valueX = 64;
@@ -87,11 +90,19 @@ public class ControlModel {
         m.midiNumber = json.optInt("midiNumber", 7);
         m.minValue = json.optInt("minValue", 0);
         m.maxValue = json.optInt("maxValue", 127);
-        m.value = (float) json.optDouble("value", 0);
+        m.value = (float) json.optDouble("value", "button".equalsIgnoreCase(m.type) ? 127 : 0);
 
         m.hasLabel = json.optBoolean("hasLabel", false);
         m.labelPosition = json.optString("labelPosition", "knob".equals(m.type) ? "bottom" : "top");
-        m.orientation = json.optString("orientation", "vertical");
+        if ("label".equals(m.type)) {
+            if (json.has("orientation")) {
+                m.orientation = json.optString("orientation", "horizontal");
+            } else {
+                m.orientation = (m.height > m.width) ? "vertical" : "horizontal";
+            }
+        } else {
+            m.orientation = json.optString("orientation", "vertical");
+        }
         m.knobStyle = json.optString("knobStyle", "standard");
         m.valueDisplay = json.optString("valueDisplay", "none");
         m.valuePosition = json.optString("valuePosition", "center");
@@ -103,16 +114,19 @@ public class ControlModel {
         m.faderStyle = json.optString("faderStyle", "standard");
         m.fontSize = (float) json.optDouble("fontSize", 0);
         m.shape = json.optString("shape", "square");
-        m.hasBackground = json.has("hasBackground") ? json.optBoolean("hasBackground") : ("fader".equals(m.type) || "label".equals(m.type));
+        m.hasBackground = json.has("hasBackground") ? json.optBoolean("hasBackground") : ("fader".equals(m.type) || "label".equals(m.type) || "knob".equals(m.type) || "display".equals(m.type));
+        m.backgroundStyle = json.optString("backgroundStyle", "outline");
+        m.displayMode = json.optString("displayMode", "bpm");
         m.hasVuMeter = json.optBoolean("hasVuMeter", false);
-        m.vuMidiChannel = json.optInt("vuMidiChannel", m.midiChannel);
-        m.vuMidiNumber = json.optInt("vuMidiNumber", m.midiNumber);
+        m.vuMidiChannel = json.optInt("vuMidiChannel", 0);
+        m.vuMidiNumber = json.optInt("vuMidiNumber", 0);
         m.hasBottomButton = json.optBoolean("hasBottomButton", false);
         m.buttonMidiNumber = json.optInt("buttonMidiNumber", 60);
         m.buttonMode = json.optString("buttonMode", "toggle");
         m.buttonValue = json.optBoolean("buttonValue", false);
         m.isMuted = json.optBoolean("isMuted", false);
-        m.mode = json.optString("mode", "momentary");
+        m.mode = json.optString("mode", "button".equalsIgnoreCase(m.type) ? "toggle" : "momentary");
+        m.targetPageId = json.optString("targetPageId", "");
         m.valueX = (float) json.optDouble("valueX", 64);
         m.valueY = (float) json.optDouble("valueY", 64);
         return m;
@@ -152,12 +166,17 @@ public class ControlModel {
             }
             obj.put("shape", shape);
             obj.put("hasBackground", hasBackground);
+            obj.put("backgroundStyle", backgroundStyle);
+            obj.put("displayMode", displayMode);
             obj.put("hasBottomButton", hasBottomButton);
             obj.put("buttonMidiNumber", buttonMidiNumber);
             obj.put("buttonMode", buttonMode);
             obj.put("buttonValue", buttonValue);
             obj.put("isMuted", isMuted);
             obj.put("mode", mode);
+            if (targetPageId != null && !targetPageId.isEmpty()) {
+                obj.put("targetPageId", targetPageId);
+            }
             obj.put("valueX", valueX);
             obj.put("valueY", valueY);
         } catch (Exception ignored) {}

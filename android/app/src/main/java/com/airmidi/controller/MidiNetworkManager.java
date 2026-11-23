@@ -19,6 +19,8 @@ public class MidiNetworkManager {
         void onLayoutReceived(LayoutModel layout);
         void onMidiActivity();
         void onMidiReceived(int status, int data1, int data2);
+        default void onBpmReceived(float bpm) {}
+        default void onBeatReceived(int beat) {}
     }
 
     private String host;
@@ -78,6 +80,17 @@ public class MidiNetworkManager {
         return port;
     }
 
+    public void requestDawSync() {
+        executor.execute(() -> {
+            try {
+                if (tcpOut != null && isConnected) {
+                    tcpOut.write("SYNC_DAW\n".getBytes(StandardCharsets.UTF_8));
+                    tcpOut.flush();
+                }
+            } catch (Exception ignored) {}
+        });
+    }
+
     public void updateHost(String host, int port) {
         this.host = host;
         this.port = port;
@@ -103,11 +116,11 @@ public class MidiNetworkManager {
                 tcpOut = tcpSocket.getOutputStream();
                 isConnected = true;
 
-                if (deviceName != null && !deviceName.trim().isEmpty()) {
-                    byte[] dNameBytes = ("DEVICE:" + deviceName.trim() + "\n").getBytes(StandardCharsets.UTF_8);
-                    tcpOut.write(dNameBytes);
-                    tcpOut.flush();
-                }
+                String handshake = (deviceName != null && !deviceName.trim().isEmpty())
+                        ? ("DEVICE:" + deviceName.trim() + "\nGET_LAYOUT\n")
+                        : "GET_LAYOUT\n";
+                tcpOut.write(handshake.getBytes(StandardCharsets.UTF_8));
+                tcpOut.flush();
 
                 notifyState(true, "Connected to Mac (" + host.trim() + ")");
 
@@ -138,6 +151,20 @@ public class MidiNetworkManager {
                                 });
                             } catch (Exception ignored) {}
                         }
+                    } else if (line.startsWith("BPM:")) {
+                        try {
+                            float bpm = Float.parseFloat(line.substring(4).trim());
+                            mainHandler.post(() -> {
+                                if (listener != null) listener.onBpmReceived(bpm);
+                            });
+                        } catch (Exception ignored) {}
+                    } else if (line.startsWith("BEAT:")) {
+                        try {
+                            int beat = Integer.parseInt(line.substring(5).trim());
+                            mainHandler.post(() -> {
+                                if (listener != null) listener.onBeatReceived(beat);
+                            });
+                        } catch (Exception ignored) {}
                     }
                 }
             } catch (Exception e) {
@@ -217,6 +244,14 @@ public class MidiNetworkManager {
         int ch = Math.max(0, Math.min(15, channel - 1));
         int status = 0xB0 | ch;
         sendMidi(status, ccNumber, value);
+    }
+
+    public void sendPitchBend(int channel, int value14Bit) {
+        int ch = Math.max(0, Math.min(15, channel - 1));
+        int val = Math.max(0, Math.min(16383, value14Bit));
+        int lsb = val & 0x7F;
+        int msb = (val >> 7) & 0x7F;
+        sendMidi(0xE0 | ch, lsb, msb);
     }
 
     public void sendNoteOn(int channel, int noteNumber, int velocity) {

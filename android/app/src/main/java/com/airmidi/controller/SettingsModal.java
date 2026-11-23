@@ -24,6 +24,7 @@ public class SettingsModal {
         void onPresetSelected(PresetManager.PresetItem presetItem);
         void onDeviceNameChanged(String newName);
         void onSidebarPositionChanged(String landscapePos, String portraitPos);
+        void onSyncDawRequested();
     }
 
     private final Context context;
@@ -34,6 +35,9 @@ public class SettingsModal {
     private String currentConnectedHost = "";
     private String currentLandscapePos = "right";
     private String currentPortraitPos = "bottom";
+    private String currentPresetId = "";
+    private String currentPresetName = "";
+    private boolean isDawConnected = false;
 
     public SettingsModal(Context context, SettingsListener listener) {
         this.context = context;
@@ -50,12 +54,19 @@ public class SettingsModal {
     }
 
     public void show(List<NetworkDiscovery.DiscoveredDevice> initialDevices, String currentDeviceName) {
-        show(initialDevices, currentDeviceName, currentLandscapePos, currentPortraitPos);
+        show(initialDevices, currentDeviceName, currentLandscapePos, currentPortraitPos, currentPresetId, currentPresetName, false);
     }
 
     public void show(List<NetworkDiscovery.DiscoveredDevice> initialDevices, String currentDeviceName, String landscapePos, String portraitPos) {
+        show(initialDevices, currentDeviceName, landscapePos, portraitPos, currentPresetId, currentPresetName, false);
+    }
+
+    public void show(List<NetworkDiscovery.DiscoveredDevice> initialDevices, String currentDeviceName, String landscapePos, String portraitPos, String activePresetId, String activePresetName, boolean isConnected) {
         if (landscapePos != null) this.currentLandscapePos = landscapePos;
         if (portraitPos != null) this.currentPortraitPos = portraitPos;
+        this.currentPresetId = activePresetId != null ? activePresetId : "";
+        this.currentPresetName = activePresetName != null ? activePresetName : "";
+        this.isDawConnected = isConnected;
 
         dialog = new Dialog(context);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -169,6 +180,57 @@ public class SettingsModal {
         });
         content.addView(manualToggle);
         content.addView(manualContainer);
+
+        // DAW Synchronization Option
+        LinearLayout syncRow = new LinearLayout(context);
+        syncRow.setOrientation(LinearLayout.HORIZONTAL);
+        syncRow.setGravity(Gravity.CENTER_VERTICAL);
+        syncRow.setPadding(dp(14), dp(12), dp(14), dp(12));
+        syncRow.setBackground(createCellBackground());
+        LinearLayout.LayoutParams syncParams = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        syncParams.bottomMargin = dp(14);
+        syncRow.setLayoutParams(syncParams);
+
+        LinearLayout syncCol = new LinearLayout(context);
+        syncCol.setOrientation(LinearLayout.VERTICAL);
+        syncCol.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        TextView syncTitle = new TextView(context);
+        syncTitle.setText("DAW Synchronization");
+        syncTitle.setTextColor(Color.WHITE);
+        syncTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        syncTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        syncCol.addView(syncTitle);
+
+        TextView syncSub = new TextView(context);
+        syncSub.setText("Fetch faders, mutes & knobs from DAW");
+        syncSub.setTextColor(Color.parseColor("#8E8E93"));
+        syncSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        syncCol.addView(syncSub);
+        syncRow.addView(syncCol);
+
+        TextView syncBtn = new TextView(context);
+        syncBtn.setText("Sync Now");
+        syncBtn.setTextColor(Color.parseColor("#0A84FF"));
+        syncBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        syncBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        syncBtn.setPadding(dp(8), dp(4), dp(4), dp(4));
+        syncRow.addView(syncBtn);
+
+        syncRow.setOnClickListener(v -> {
+            if (listener != null) {
+                listener.onSyncDawRequested();
+            }
+            syncBtn.setText("Synced ✓");
+            syncBtn.setTextColor(Color.parseColor("#30D158"));
+            syncBtn.postDelayed(() -> {
+                syncBtn.setText("Sync Now");
+                syncBtn.setTextColor(Color.parseColor("#0A84FF"));
+            }, 1200);
+        });
+        content.addView(syncRow);
 
         // -------------------------------------------------------------
         // SECTION 2: PRESETS (BUILT-IN & CUSTOM USER PRESETS)
@@ -394,9 +456,12 @@ public class SettingsModal {
             row.addView(delBtn);
         }
 
+        boolean isActive = (item.id != null && item.id.equals(currentPresetId)) ||
+                           (item.name != null && !item.name.isEmpty() && item.name.equalsIgnoreCase(currentPresetName));
+
         TextView arrow = new TextView(context);
-        arrow.setText("Load");
-        arrow.setTextColor(Color.parseColor("#0A84FF"));
+        arrow.setText(isActive ? "Active ✓" : "Load");
+        arrow.setTextColor(Color.parseColor(isActive ? "#30D158" : "#0A84FF"));
         arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         arrow.setTypeface(Typeface.DEFAULT_BOLD);
         arrow.setPadding(dp(4), dp(4), dp(4), dp(4));

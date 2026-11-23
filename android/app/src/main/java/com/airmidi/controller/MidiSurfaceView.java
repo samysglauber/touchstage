@@ -119,6 +119,30 @@ public class MidiSurfaceView extends View {
     private float offsetX = 0.0f;
     private float offsetY = 0.0f;
 
+    // BPM & Beat Metronome state
+    private float currentBpm = 120.0f;
+    private float beatGlowAlpha = 0.0f;
+    private ValueAnimator beatAnimator;
+
+    public void setBpm(float bpm) {
+        this.currentBpm = bpm;
+        postInvalidate();
+    }
+
+    public void triggerBeat(int beat) {
+        post(() -> {
+            if (beatAnimator != null) beatAnimator.cancel();
+            beatGlowAlpha = 1.0f;
+            beatAnimator = ValueAnimator.ofFloat(1.0f, 0.0f);
+            beatAnimator.setDuration(320);
+            beatAnimator.addUpdateListener(animation -> {
+                beatGlowAlpha = (float) animation.getAnimatedValue();
+                postInvalidate();
+            });
+            beatAnimator.start();
+        });
+    }
+
     // Multi-touch tracking
     private static class TouchState {
         ControlModel control;
@@ -311,6 +335,14 @@ public class MidiSurfaceView extends View {
         invalidate();
     }
 
+    private boolean isControlTouched(ControlModel ctrl) {
+        if (ctrl == null) return false;
+        for (TouchState s : activeTouches.values()) {
+            if (s.control == ctrl) return true;
+        }
+        return false;
+    }
+
     public void updateControlFromMidi(int status, int data1, int data2) {
         if (layout == null) return;
 
@@ -326,8 +358,10 @@ public class MidiSurfaceView extends View {
             int value = data2;
 
             for (ControlModel ctrl : allCtrls) {
+                if (isControlTouched(ctrl)) continue; // Never fight the user's active touch!
+
                 if ("fader".equals(ctrl.type)) {
-                    if (ctrl.midiChannel == channel && ctrl.midiNumber == ccNumber) {
+                    if ("cc".equalsIgnoreCase(ctrl.midiType) && ctrl.midiChannel == channel && ctrl.midiNumber == ccNumber) {
                         ctrl.value = value;
                         float faderPct = (ctrl.value - ctrl.minValue) / (float)(ctrl.maxValue - ctrl.minValue);
                         if (faderPct <= 0.005f) {
@@ -368,7 +402,7 @@ public class MidiSurfaceView extends View {
                         changed = true;
                     }
                 } else if ("knob".equals(ctrl.type)) {
-                    if (ctrl.midiChannel == channel && ctrl.midiNumber == ccNumber) {
+                    if ("cc".equalsIgnoreCase(ctrl.midiType) && ctrl.midiChannel == channel && ctrl.midiNumber == ccNumber) {
                         ctrl.value = value;
                         changed = true;
                     }
@@ -395,6 +429,16 @@ public class MidiSurfaceView extends View {
                         if (wasLit != isLit) {
                             animateButtonTrigger(ctrl, isLit);
                         }
+                        changed = true;
+                    }
+                } else if ("display".equals(ctrl.type)) {
+                    if (ctrl.midiChannel == channel && ctrl.midiNumber == ccNumber) {
+                        int onVal = (ctrl.maxValue > 0) ? ctrl.maxValue : 127;
+                        int offVal = (ctrl.minValue >= 0) ? ctrl.minValue : 0;
+                        int threshold = (onVal + offVal) / 2;
+                        boolean isLit = (value > threshold);
+                        ctrl.value = isLit ? onVal : offVal;
+                        animateButtonTrigger(ctrl, isLit);
                         changed = true;
                     }
                 }
@@ -464,14 +508,20 @@ public class MidiSurfaceView extends View {
                 }
             }
         } else if (messageType == 0xE0) {
-            // Pitch Bend: MCU motorized fader feedback
-            // Channel 1..8 = Tracks 1..8 Faders, Channel 9 = Master Fader
+            // Pitch Bend: Only update controls explicitly set to pitchbend (or MCU master fader)
             int faderVal = data2; // 0..127
             for (ControlModel ctrl : allCtrls) {
+                if (isControlTouched(ctrl)) continue;
+
                 if ("fader".equals(ctrl.type)) {
+                    boolean isPitchBendType = "pitchbend".equalsIgnoreCase(ctrl.midiType);
+                    boolean isMcuFader = (ctrl.id != null && (ctrl.id.startsWith("fader_ch") || ctrl.id.contains("track")));
+                    boolean isMaster = "fader_master".equals(ctrl.id) ||
+                                       (ctrl.label != null && ctrl.label.equalsIgnoreCase("MASTER")) ||
+                                       (ctrl.vuMidiNumber == 9);
+
                     if (channel >= 1 && channel <= 8) {
-                        int assignedTrack = (ctrl.vuMidiNumber > 0) ? ctrl.vuMidiNumber : ((ctrl.vuMidiChannel > 0) ? ctrl.vuMidiChannel : ctrl.midiChannel);
-                        if (assignedTrack == channel || ("pitchbend".equalsIgnoreCase(ctrl.midiType) && ctrl.midiChannel == channel)) {
+                        if ((isPitchBendType && ctrl.midiChannel == channel) || (isMcuFader && ctrl.midiChannel == channel)) {
                             ctrl.value = faderVal;
                             float faderPct = (ctrl.value - ctrl.minValue) / (float)(ctrl.maxValue - ctrl.minValue);
                             if (faderPct <= 0.005f) {
@@ -485,11 +535,7 @@ public class MidiSurfaceView extends View {
                             changed = true;
                         }
                     } else if (channel == 9) {
-                        boolean isMaster = "fader_master".equals(ctrl.id) ||
-                                           (ctrl.label != null && ctrl.label.equalsIgnoreCase("MASTER")) ||
-                                           ctrl.vuMidiNumber == 9 ||
-                                           ("pitchbend".equalsIgnoreCase(ctrl.midiType) && ctrl.midiChannel == 9);
-                        if (isMaster) {
+                        if (isMaster || (isPitchBendType && ctrl.midiChannel == 9)) {
                             ctrl.value = faderVal;
                             float faderPct = (ctrl.value - ctrl.minValue) / (float)(ctrl.maxValue - ctrl.minValue);
                             if (faderPct <= 0.005f) {
@@ -516,32 +562,33 @@ public class MidiSurfaceView extends View {
                 int mcuTrack = (noteNumber - 16) + 1; // Track 1..8
                 boolean isMuted = isNoteOn; // In MCU protocol, Note On 127 = Muted, Note Off 0 = Active
                 for (ControlModel ctrl : allCtrls) {
-                    int assignedTrack = (ctrl.vuMidiNumber > 0) ? ctrl.vuMidiNumber : ((ctrl.vuMidiChannel > 0) ? ctrl.vuMidiChannel : ctrl.midiChannel);
-                    if (assignedTrack == mcuTrack) {
+                    if (isControlTouched(ctrl)) continue;
+                    boolean isMcuBtn = ctrl.id != null && (ctrl.id.contains("btn_ch" + mcuTrack) || ctrl.id.contains("btn_" + mcuTrack));
+                    boolean isMcuFader = ctrl.id != null && (ctrl.id.contains("fader_ch" + mcuTrack) || ctrl.id.contains("fader_" + mcuTrack));
+                    if ("button".equals(ctrl.type) && isMcuBtn) {
+                        boolean wasLit = (ctrl.value > 0);
+                        ctrl.value = isMuted ? 0 : 127;
+                        ctrl.isMuted = isMuted;
+                        boolean isLit = (ctrl.value > 0);
+                        if (wasLit != isLit) {
+                            animateButtonTrigger(ctrl, isLit);
+                        }
+                        changed = true;
+                    }
+                    if ("fader".equals(ctrl.type) && isMcuFader) {
                         ctrl.isMuted = isMuted;
                         if (ctrl.hasBottomButton) {
                             ctrl.buttonValue = !isMuted;
                         }
                         changed = true;
                     }
-                    if ("button".equals(ctrl.type)) {
-                        if (ctrl.id != null && (ctrl.id.contains("btn_ch" + mcuTrack) || ctrl.id.contains("btn_" + mcuTrack))) {
-                            boolean wasLit = (ctrl.value > 0);
-                            ctrl.value = isMuted ? 0 : 127;
-                            ctrl.isMuted = isMuted;
-                            boolean isLit = (ctrl.value > 0);
-                            if (wasLit != isLit) {
-                                animateButtonTrigger(ctrl, isLit);
-                            }
-                            changed = true;
-                        }
-                    }
                 }
             }
 
             for (ControlModel ctrl : allCtrls) {
-                if (ctrl.midiChannel == channel) {
-                    if ("button".equals(ctrl.type)) {
+                if (isControlTouched(ctrl)) continue;
+                if (ctrl.midiChannel == channel && "note".equalsIgnoreCase(ctrl.midiType)) {
+                    if ("button".equals(ctrl.type) || "display".equals(ctrl.type)) {
                         if (ctrl.midiNumber == noteNumber) {
                             int onVal = (ctrl.maxValue > 0) ? ctrl.maxValue : 127;
                             int offVal = (ctrl.minValue >= 0) ? ctrl.minValue : 0;
@@ -765,6 +812,8 @@ public class MidiSurfaceView extends View {
                 drawXYPad(canvas, ctrl);
             } else if ("label".equals(ctrl.type)) {
                 drawLabel(canvas, ctrl);
+            } else if ("display".equals(ctrl.type)) {
+                drawDisplay(canvas, ctrl);
             } else if ("vu".equals(ctrl.type)) {
                 drawVuMeter(canvas, ctrl);
             }
@@ -917,6 +966,20 @@ public class MidiSurfaceView extends View {
             }
         });
         pageAnimator.start();
+    }
+
+    public void navigateToPageId(String pageId) {
+        if (layout == null || layout.pages == null || pageId == null || pageId.isEmpty()) return;
+        for (int i = 0; i < layout.pages.size(); i++) {
+            LayoutModel.PageModel p = layout.pages.get(i);
+            if (pageId.equals(p.id)) {
+                if (i != layout.activePageIndex) {
+                    performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                    animateToPage(i);
+                }
+                return;
+            }
+        }
     }
 
     private void animateBackToCurrentPage() {
@@ -1444,6 +1507,13 @@ public class MidiSurfaceView extends View {
             canvas.drawText(ctrl.label != null ? ctrl.label : "", pillRect.centerX(), textBaseY, paintText);
             canvas.restore();
             paintText.setLetterSpacing(0.0f);
+
+            if (ctrl.targetPageId != null && !ctrl.targetPageId.isEmpty()) {
+                paintText.setTextSize(9.5f);
+                paintText.setColor(adjustAlpha(ctrl.accentColor, 0.85f));
+                paintText.setTextAlign(Paint.Align.CENTER);
+                canvas.drawText("↗", pillRect.right - dp(10), pillRect.centerY() + dp(3.5f), paintText);
+            }
         }
 
         float range = (ctrl.maxValue > ctrl.minValue) ? (ctrl.maxValue - ctrl.minValue) : 127.0f;
@@ -1555,7 +1625,7 @@ public class MidiSurfaceView extends View {
             drawGlowingLine(canvas, thumbRect.centerX(), thumbRect.centerY() - slitH / 2.0f, thumbRect.centerX(), thumbRect.centerY() + slitH / 2.0f, ctrl.accentColor, 3.0f + 1.5f * elevation);
         } else {
             // Vertical Fader Slot (Groove / Recess)
-            float slotW = 16.0f;
+            float slotW = Math.max(14.0f, Math.min(26.0f, trackRect.width() * 0.22f));
             float slotX = trackRect.centerX() - slotW / 2.0f;
             RectF slotRect = new RectF(slotX, trackRect.top + 4.0f, slotX + slotW, trackRect.bottom - 4.0f);
 
@@ -1572,14 +1642,14 @@ public class MidiSurfaceView extends View {
             // Deep recessed slot background
             paintFill.setShader(null);
             paintFill.setColor(Color.parseColor("#08090C"));
-            canvas.drawRoundRect(slotRect, 6.0f, 6.0f, paintFill);
+            canvas.drawRoundRect(slotRect, slotW / 2.5f, slotW / 2.5f, paintFill);
             paintStroke.setColor(Color.parseColor("#1C1E26"));
             paintStroke.setStrokeWidth(1.2f);
-            canvas.drawRoundRect(slotRect, 6.0f, 6.0f, paintStroke);
+            canvas.drawRoundRect(slotRect, slotW / 2.5f, slotW / 2.5f, paintStroke);
 
             float travelH = slotRect.height() - 12.0f;
             float beamTop = 0, beamBottom = 0;
-            float thumbW = Math.min(ctrl.width + 4.0f, 58.0f);
+            float thumbW = Math.max(36.0f, trackRect.width() - 16.0f);
             float thumbH = 28.0f;
             float thumbX = trackRect.centerX() - thumbW / 2.0f;
             float thumbY = 0;
@@ -1910,14 +1980,17 @@ public class MidiSurfaceView extends View {
             paintText.setTypeface(Typeface.DEFAULT);
         }
 
-        // 6. Draw Pill Label (Matching "SYNTH FILTER" capsule)
+        // 6. Draw Pill Label (Matching fader capsule)
         if (hasLabel && pillRect != null) {
-            paintFill.setShader(null);
-            paintFill.setColor(Color.parseColor("#0A0B0E"));
-            canvas.drawRoundRect(pillRect, 13.0f, 13.0f, paintFill);
+            if (ctrl.hasBackground) {
+                paintFill.setShader(null);
+                paintFill.setColor(Color.parseColor("#0C0E12"));
+                canvas.drawRoundRect(pillRect, 8.0f, 8.0f, paintFill);
 
-            // Glowing border
-            drawGlowingRoundRect(canvas, pillRect, 13.0f, 13.0f, ctrl.accentColor, 1.4f);
+                paintStroke.setColor(Color.parseColor("#262932"));
+                paintStroke.setStrokeWidth(1.2f);
+                canvas.drawRoundRect(pillRect, 8.0f, 8.0f, paintStroke);
+            }
 
             float fSize = (ctrl.fontSize > 0) ? ctrl.fontSize : 11.0f;
             paintText.setColor(Color.WHITE);
@@ -1932,6 +2005,13 @@ public class MidiSurfaceView extends View {
             canvas.drawText(ctrl.label != null ? ctrl.label : "", pillRect.centerX(), textBaseY, paintText);
             canvas.restore();
             paintText.setLetterSpacing(0.0f);
+
+            if (ctrl.targetPageId != null && !ctrl.targetPageId.isEmpty()) {
+                paintText.setTextSize(9.5f);
+                paintText.setColor(adjustAlpha(ctrl.accentColor, 0.85f));
+                paintText.setTextAlign(Paint.Align.CENTER);
+                canvas.drawText("↗", pillRect.right - dp(10), pillRect.centerY() + dp(3.5f), paintText);
+            }
         }
     }
 
@@ -1955,7 +2035,7 @@ public class MidiSurfaceView extends View {
             if (isCircle) {
                 float size = Math.min(r.width(), r.height());
                 float radius = size / 2.0f;
-                canvas.drawCircle(cx, cy, (radius - 2.0f) + curExpand, paintStroke);
+                canvas.drawCircle(cx, cy, (radius - 1.0f) + curExpand, paintStroke);
             } else {
                 float cornerR = 12.0f;
                 RectF waveRect = new RectF(r.left - curExpand, r.top - curExpand, r.right + curExpand, r.bottom + curExpand);
@@ -1977,13 +2057,10 @@ public class MidiSurfaceView extends View {
             paintFill.setShader(null);
             paintFill.setColor(Color.parseColor("#08090C"));
             canvas.drawCircle(cx, cy, radius, paintFill);
-            paintStroke.setColor(Color.parseColor("#20232C"));
-            paintStroke.setStrokeWidth(1.2f);
-            canvas.drawCircle(cx, cy, radius, paintStroke);
 
-            // 360° Neon Halo Ring (crisp and discreet)
-            float haloR = radius - 4.0f;
-            float haloStroke = 1.4f + (0.8f * activation);
+            // 360° Neon Halo Ring (crisp and discreet, occupying full footprint)
+            float haloR = radius - 1.5f;
+            float haloStroke = 2.0f + (0.8f * activation);
             int haloColor = blendColors(Color.parseColor("#1C1E26"), ctrl.accentColor, Math.max(0.25f, activation * 0.75f));
             paintStroke.setStyle(Paint.Style.STROKE);
             paintStroke.setColor(haloColor);
@@ -1991,7 +2068,7 @@ public class MidiSurfaceView extends View {
             canvas.drawCircle(cx, cy, haloR, paintStroke);
 
             // Inner Face
-            float faceR = haloR - 4.0f;
+            float faceR = haloR - 2.0f;
             int unlitFace = Color.parseColor("#15171D");
             int baseColor = (ctrl.color == ctrl.accentColor) ? deriveDarkBaseColor(ctrl.accentColor) : ctrl.color;
             int faceColor = blendColors(unlitFace, baseColor, activation);
@@ -2111,6 +2188,13 @@ public class MidiSurfaceView extends View {
             }
         }
 
+        if (ctrl.targetPageId != null && !ctrl.targetPageId.isEmpty()) {
+            paintText.setTextSize(10.5f);
+            paintText.setColor(Color.WHITE);
+            paintText.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText("↗", r.right - dp(12), r.top + dp(14), paintText);
+        }
+
         canvas.restore();
     }
 
@@ -2147,26 +2231,151 @@ public class MidiSurfaceView extends View {
 
     private void drawLabel(Canvas canvas, ControlModel ctrl) {
         RectF r = ctrl.getRectF();
+        boolean isFilled = "filled".equalsIgnoreCase(ctrl.backgroundStyle);
+        boolean isVertical = "vertical".equalsIgnoreCase(ctrl.orientation);
+
         if (ctrl.hasBackground) {
-            paintFill.setShader(null);
-            paintFill.setColor(Color.parseColor("#0A0B0E"));
-            canvas.drawRoundRect(r, 13.0f, 13.0f, paintFill);
-            drawGlowingRoundRect(canvas, r, 13.0f, 13.0f, ctrl.accentColor, 1.2f);
+            float pillR = Math.min(13.0f, Math.min(r.width(), r.height()) / 2.0f);
+            if (isFilled) {
+                paintFill.setShader(null);
+                paintFill.setColor(ctrl.accentColor);
+                canvas.drawRoundRect(r, pillR, pillR, paintFill);
+                drawGlowingRoundRect(canvas, r, pillR, pillR, ctrl.accentColor, 1.0f);
+            } else {
+                paintFill.setShader(null);
+                paintFill.setColor(Color.parseColor("#0A0B0E"));
+                canvas.drawRoundRect(r, pillR, pillR, paintFill);
+                drawGlowingRoundRect(canvas, r, pillR, pillR, ctrl.accentColor, 1.2f);
+            }
         }
 
         float fSize = (ctrl.fontSize > 0) ? ctrl.fontSize : 12.5f;
-        paintText.setColor(Color.WHITE);
+        int textColor = Color.WHITE;
+        if (ctrl.hasBackground && isFilled) {
+            int red = Color.red(ctrl.accentColor);
+            int green = Color.green(ctrl.accentColor);
+            int blue = Color.blue(ctrl.accentColor);
+            double lum = 0.299 * red + 0.587 * green + 0.114 * blue;
+            textColor = (lum > 150.0) ? Color.parseColor("#0A0C10") : Color.WHITE;
+        }
+
+        paintText.setColor(textColor);
         paintText.setTextSize(fSize);
         paintText.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
         paintText.setLetterSpacing(0.04f);
 
         canvas.save();
-        canvas.clipRect(r.left + 2.0f, r.top + 2.0f, r.right - 2.0f, r.bottom - 2.0f);
-        Paint.FontMetrics fm = paintText.getFontMetrics();
-        float textBaseY = r.centerY() - (fm.ascent + fm.descent) / 2.0f;
-        canvas.drawText(ctrl.label != null ? ctrl.label : "", r.centerX(), textBaseY, paintText);
+        if (isVertical) {
+            canvas.translate(r.centerX(), r.centerY());
+            canvas.rotate(-90.0f);
+            canvas.clipRect(-r.height() / 2.0f + 2.0f, -r.width() / 2.0f + 1.0f, r.height() / 2.0f - 2.0f, r.width() / 2.0f - 1.0f);
+            paintText.setTextAlign(Paint.Align.CENTER);
+            Paint.FontMetrics fm = paintText.getFontMetrics();
+            float textBaseY = -(fm.ascent + fm.descent) / 2.0f;
+            canvas.drawText(ctrl.label != null ? ctrl.label : "", 0, textBaseY, paintText);
+        } else {
+            canvas.clipRect(r.left + 2.0f, r.top + 2.0f, r.right - 2.0f, r.bottom - 2.0f);
+            paintText.setTextAlign(Paint.Align.CENTER);
+            Paint.FontMetrics fm = paintText.getFontMetrics();
+            float textBaseY = r.centerY() - (fm.ascent + fm.descent) / 2.0f;
+            canvas.drawText(ctrl.label != null ? ctrl.label : "", r.centerX(), textBaseY, paintText);
+        }
         canvas.restore();
         paintText.setLetterSpacing(0.0f);
+
+        // Draw small link indicator if targetPageId is set
+        if (ctrl.targetPageId != null && !ctrl.targetPageId.isEmpty()) {
+            paintText.setTextSize(10.0f);
+            paintText.setColor((ctrl.hasBackground && isFilled) ? adjustAlpha(textColor, 0.75f) : adjustAlpha(ctrl.accentColor, 0.85f));
+            paintText.setTextAlign(Paint.Align.CENTER);
+            if (isVertical) {
+                canvas.drawText("↗", r.centerX(), r.top + dp(12), paintText);
+            } else {
+                canvas.drawText("↗", r.right - dp(10), r.top + dp(12), paintText);
+            }
+        }
+    }
+
+    private void drawDisplay(Canvas canvas, ControlModel ctrl) {
+        RectF r = ctrl.getRectF();
+
+        canvas.save();
+        if (ctrl.buttonScale > 0.01f && Math.abs(ctrl.buttonScale - 1.0f) > 0.001f) {
+            canvas.scale(ctrl.buttonScale, ctrl.buttonScale, r.centerX(), r.centerY());
+        }
+
+        // 1. Sleek Card Background
+        if (ctrl.hasBackground) {
+            paintFill.setShader(null);
+            if (ctrl.animatedActivation > 0.01f) {
+                int baseCol = Color.parseColor("#0D1017");
+                paintFill.setColor(blendColors(baseCol, ctrl.accentColor, 0.35f * ctrl.animatedActivation));
+            } else {
+                paintFill.setColor(Color.parseColor("#0D1017"));
+            }
+            canvas.drawRoundRect(r, 12.0f, 12.0f, paintFill);
+
+            // Glowing Border
+            float glowThickness = (ctrl.animatedActivation > 0.01f) ? (1.2f + 1.5f * ctrl.animatedActivation) : 1.2f;
+            drawGlowingRoundRect(canvas, r, 12.0f, 12.0f, ctrl.accentColor, glowThickness);
+        }
+
+        // 2. Beat Pulsing Indicator LED (Top-Right)
+        float ledR = 6.0f;
+        float ledX = r.right - ledR - 14.0f;
+        float ledY = r.top + 14.0f;
+        int ledColor = adjustAlpha(ctrl.accentColor, Math.max(0.25f, beatGlowAlpha));
+        paintFill.setShader(null);
+        paintFill.setColor(ledColor);
+        canvas.drawCircle(ledX, ledY, ledR, paintFill);
+        if (beatGlowAlpha > 0.1f) {
+            paintFill.setColor(adjustAlpha(Color.WHITE, beatGlowAlpha * 0.85f));
+            canvas.drawCircle(ledX, ledY, ledR * 0.5f, paintFill);
+        }
+
+        // 3. Header Label (Top or Bottom)
+        boolean isBottom = "bottom".equalsIgnoreCase(ctrl.labelPosition);
+        if (ctrl.hasLabel && ctrl.label != null && !ctrl.label.isEmpty()) {
+            paintText.setTextSize(10.0f);
+            paintText.setColor(Color.parseColor("#9AA0A6"));
+            paintText.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+            paintText.setTextAlign(Paint.Align.LEFT);
+            paintText.setLetterSpacing(0.06f);
+            float labelY = isBottom ? (r.bottom - 12.0f) : (r.top + 18.0f);
+            canvas.drawText(ctrl.label.toUpperCase(), r.left + 14.0f, labelY, paintText);
+            paintText.setLetterSpacing(0.0f);
+        }
+
+        // 4. Large Digital Readout
+        String valStr;
+        boolean isBpm = "bpm".equalsIgnoreCase(ctrl.displayMode) || 
+                       (ctrl.label != null && ctrl.label.toUpperCase().contains("BPM"));
+        if (isBpm) {
+            if (Math.abs(currentBpm - Math.round(currentBpm)) < 0.05f) {
+                valStr = String.valueOf(Math.round(currentBpm));
+            } else {
+                valStr = String.format(java.util.Locale.US, "%.1f", currentBpm);
+            }
+        } else {
+            float range = Math.max(1, ctrl.maxValue - ctrl.minValue);
+            float calculatedVal = ctrl.minValue + (ctrl.value / 127.0f) * range;
+            valStr = String.valueOf(Math.round(calculatedVal));
+        }
+
+        float fSize = (ctrl.fontSize > 0) ? ctrl.fontSize : 28.0f;
+        paintText.setTextSize(fSize);
+        paintText.setColor(Color.WHITE);
+        paintText.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+        paintText.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics fm = paintText.getFontMetrics();
+        float yShift = 0f;
+        if (ctrl.hasLabel) {
+            yShift = isBottom ? -7.0f : 7.0f;
+        }
+        float textBaseY = r.centerY() + yShift - (fm.ascent + fm.descent) / 2.0f;
+        canvas.drawText(valStr, r.centerX(), textBaseY, paintText);
+
+        canvas.restore();
     }
 
     private void drawVuMeter(Canvas canvas, ControlModel ctrl) {
@@ -2494,6 +2703,51 @@ public class MidiSurfaceView extends View {
 
                 ControlModel hit = findHitControl(touchX, touchY);
                 if (hit != null) {
+                    // Check Screen Navigation Link on Label
+                    if ("label".equals(hit.type)) {
+                        if (hit.targetPageId != null && !hit.targetPageId.isEmpty()) {
+                            navigateToPageId(hit.targetPageId);
+                            return true;
+                        }
+                        return false;
+                    }
+
+                    // Check Screen Navigation Link on Fader's label capsule (exclusively on capsule)
+                    if ("fader".equals(hit.type) && hit.hasLabel && hit.targetPageId != null && !hit.targetPageId.isEmpty()) {
+                        float pillH = 26.0f;
+                        boolean isBottom = "bottom".equalsIgnoreCase(hit.labelPosition);
+                        RectF pillRect;
+                        if (isBottom) {
+                            pillRect = new RectF(hit.x, hit.y + hit.height - pillH, hit.x + hit.width, hit.y + hit.height);
+                        } else {
+                            pillRect = new RectF(hit.x, hit.y, hit.x + hit.width, hit.y + pillH);
+                        }
+                        if (pillRect.contains(touchX, touchY)) {
+                            navigateToPageId(hit.targetPageId);
+                            return true;
+                        }
+                    }
+
+                    // Check Screen Navigation Link on Knob's label capsule
+                    if ("knob".equals(hit.type) && hit.hasLabel && hit.targetPageId != null && !hit.targetPageId.isEmpty()) {
+                        float pillH = 26.0f;
+                        boolean isTop = "top".equalsIgnoreCase(hit.labelPosition);
+                        RectF pillRect = isTop ?
+                            new RectF(hit.x, hit.y, hit.x + hit.width, hit.y + pillH) :
+                            new RectF(hit.x, hit.y + hit.height - pillH, hit.x + hit.width, hit.y + hit.height);
+                        if (pillRect.contains(touchX, touchY)) {
+                            navigateToPageId(hit.targetPageId);
+                            return true;
+                        }
+                    }
+
+                    // Check Screen Navigation Link on Button
+                    if ("button".equals(hit.type) && hit.targetPageId != null && !hit.targetPageId.isEmpty()) {
+                        animateButtonTrigger(hit, true);
+                        navigateToPageId(hit.targetPageId);
+                        return true;
+                    }
+
                     TouchState state = new TouchState();
                     state.control = hit;
                     state.startY = touchY;
@@ -2511,11 +2765,14 @@ public class MidiSurfaceView extends View {
                         }
                     }
 
-                    if ("button".equals(hit.type)) {
+                    if ("button".equals(hit.type) || "display".equals(hit.type)) {
                         handlePadButtonDown(hit);
                     } else if ("fader".equals(hit.type)) {
                         setFaderPressed(hit, true);
                         updateFaderTouch(hit, touchX, touchY);
+                    } else if ("knob".equals(hit.type)) {
+                        state.startY = touchY;
+                        state.initialVal = hit.value;
                     } else if ("xypad".equals(hit.type)) {
                         updateXYTouch(hit, touchX, touchY);
                     }
@@ -2540,10 +2797,17 @@ public class MidiSurfaceView extends View {
                         } else if ("knob".equals(state.control.type)) {
                             float deltaY = state.startY - touchY;
                             float range = state.control.maxValue - state.control.minValue;
-                            float newVal = state.initialVal + (deltaY / 120.0f) * range;
-                            state.control.value = Math.max(state.control.minValue, Math.min(state.control.maxValue, newVal));
-                            if (networkManager != null) {
-                                networkManager.sendCC(state.control.midiChannel, state.control.midiNumber, Math.round(state.control.value));
+                            float newVal = state.initialVal + (deltaY / 240.0f) * range;
+                            int newIntVal = Math.round(Math.max(state.control.minValue, Math.min(state.control.maxValue, newVal)));
+                            if (newIntVal != (int) state.control.value) {
+                                state.control.value = newIntVal;
+                                if (networkManager != null) {
+                                    if ("cc".equalsIgnoreCase(state.control.midiType)) {
+                                        networkManager.sendCC(state.control.midiChannel, state.control.midiNumber, newIntVal);
+                                    } else if ("pitchbend".equalsIgnoreCase(state.control.midiType)) {
+                                        networkManager.sendMidi(0xE0 | (state.control.midiChannel - 1), 0, newIntVal);
+                                    }
+                                }
                             }
                         } else if ("xypad".equals(state.control.type)) {
                             updateXYTouch(state.control, touchX, touchY);
@@ -2569,7 +2833,7 @@ public class MidiSurfaceView extends View {
                         if (!stillHeld) {
                             setFaderPressed(state.control, false);
                         }
-                    } else if ("button".equals(state.control.type)) {
+                    } else if ("button".equals(state.control.type) || "display".equals(state.control.type)) {
                         handlePadButtonUp(state.control);
                     }
                 }
@@ -2584,7 +2848,7 @@ public class MidiSurfaceView extends View {
                 for (TouchState state : activeTouches.values()) {
                     if ("fader".equals(state.control.type)) {
                         setFaderPressed(state.control, false);
-                    } else if ("button".equals(state.control.type)) {
+                    } else if ("button".equals(state.control.type) || "display".equals(state.control.type)) {
                         handlePadButtonUp(state.control);
                     }
                 }
@@ -2602,6 +2866,12 @@ public class MidiSurfaceView extends View {
         if (layout == null || layout.controls == null) return null;
         for (int i = layout.controls.size() - 1; i >= 0; i--) {
             ControlModel m = layout.controls.get(i);
+            if ("label".equals(m.type)) {
+                if (m.targetPageId != null && !m.targetPageId.isEmpty() && m.getRectF().contains(x, y)) {
+                    return m;
+                }
+                continue;
+            }
             if (m.getRectF().contains(x, y)) return m;
         }
         return null;
@@ -2657,7 +2927,9 @@ public class MidiSurfaceView extends View {
         }
 
         pct = Math.max(0.0f, Math.min(1.0f, pct));
-        ctrl.value = Math.round(ctrl.minValue + pct * (ctrl.maxValue - ctrl.minValue));
+        int newIntVal = Math.round(ctrl.minValue + pct * (ctrl.maxValue - ctrl.minValue));
+        boolean valChanged = (newIntVal != (int) ctrl.value);
+        ctrl.value = newIntVal;
 
         // When moving the fader, the meter cannot exceed the fader's physical level
         if (pct <= 0.005f) {
@@ -2670,8 +2942,12 @@ public class MidiSurfaceView extends View {
             ctrl.targetVuLevel = Math.min(ctrl.targetVuLevel, pct);
         }
 
-        if (networkManager != null) {
-            networkManager.sendCC(ctrl.midiChannel, ctrl.midiNumber, (int) ctrl.value);
+        if (valChanged && networkManager != null) {
+            if ("cc".equalsIgnoreCase(ctrl.midiType)) {
+                networkManager.sendCC(ctrl.midiChannel, ctrl.midiNumber, newIntVal);
+            } else if ("pitchbend".equalsIgnoreCase(ctrl.midiType)) {
+                networkManager.sendMidi(0xE0 | (ctrl.midiChannel - 1), 0, newIntVal);
+            }
         }
     }
 
@@ -2745,23 +3021,17 @@ public class MidiSurfaceView extends View {
     }
 
     private void syncFaderMuteFromButton(ControlModel btn) {
+        if (btn == null || btn.id == null) return;
         List<ControlModel> all = getAllControls();
         for (ControlModel f : all) {
             if ("fader".equals(f.type) || "vu".equals(f.type)) {
                 boolean match = false;
-                if (btn.id != null && f.id != null) {
+                if (f.id != null) {
                     String bBase = btn.id.replace("btn_", "").replace("pad_", "");
                     String fBase = f.id.replace("fader_", "").replace("vu_", "");
-                    if (bBase.equalsIgnoreCase(fBase)) match = true;
-                }
-                int fTrack = (f.vuMidiNumber > 0) ? f.vuMidiNumber : f.midiChannel;
-                int bTrack = (btn.vuMidiNumber > 0) ? btn.vuMidiNumber : btn.midiChannel;
-                if (fTrack == bTrack) match = true;
-                if (btn.midiNumber >= 16 && btn.midiNumber <= 23 && fTrack == (btn.midiNumber - 16 + 1)) {
-                    match = true;
-                }
-                if (btn.midiNumber >= 48 && btn.midiNumber <= 55 && fTrack == (btn.midiNumber - 48 + 1)) {
-                    match = true;
+                    if (!bBase.isEmpty() && !fBase.isEmpty() && bBase.equalsIgnoreCase(fBase)) {
+                        match = true;
+                    }
                 }
                 if (match) {
                     f.isMuted = btn.isMuted;
